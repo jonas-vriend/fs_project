@@ -27,6 +27,7 @@ results = reader.readtext(
 raw_text = [text for _, text, _ in results]
 print("===RAW TEXT===\n", raw_text)
 print('\n')
+
 def clean_data(data, debug=False):
     cleaned = []
     unwanted_word = re.compile(r'^[^A-Z][a-z]{1,9}$')
@@ -34,6 +35,8 @@ def clean_data(data, debug=False):
     end = re.compile(r'(?i)total.*liabilit(?:y|ies).*equity.*\d+')
     for line in data:
         stripped = line.strip()
+        if debug:
+            print(f"LINE: '{stripped}'")
         if unwanted_word.match(stripped):
             if debug:
                 print(f'caught unwanted word: {stripped}')
@@ -49,8 +52,33 @@ def clean_data(data, debug=False):
             cleaned.append(stripped)
     return cleaned
 
+def build_fs(clean_data):
+    headings = []
+    line_items = []
+    basic_line_item = re.compile(
+    r"""(?ix)
+    ^[A-Za-z0-9\s\-',();:&]+?              # label: words and common punctuation
+    (?:\$?\s*\d{1,3}(?:,\d{3})*)\s+        # first number with optional $ and spacing
+    (?:\$?\s*\d{1,3}(?:,\d{3})*)$          # second number with optional $ and spacing
+    """
+    )
 
-    
+
+    print('===CLEAN_DATA===\n', clean_data)
+    print()
+    for line in clean_data:
+        if basic_line_item.match(line):
+            line_items.append(line)
+        else:
+            headings.append(line)
+    print('===HEADINGS===\n', headings)
+    print()
+
+    print('===LINE_ITEMS===\n', line_items)
+    print()
+
+    print(f'Missing: {set(clean_data) - set(headings) - set(line_items)}')
+
 
 def debug_output(data, verbose=False):
     img = cv2.imread("high_contrast_page.png")
@@ -65,12 +93,13 @@ def debug_output(data, verbose=False):
 
 
 debug_output(results)
-cleaned = clean_data(raw_text, True)
-print(cleaned)
+cleaned = clean_data(raw_text)
+# print(cleaned)
 if '13,5' in raw_text:
     print('found in raw')
 if '13,5' in cleaned:
     print('found in cleaned')
+build_fs(cleaned)
 
 class LineItem:
     def __init__(self, name):
@@ -87,7 +116,7 @@ class LineItem:
         data_pairs = [(year, self.data[year]) for year in sorted(self.data.keys(), reverse=True)]
         return f'Line item: {self.name} | Values: {data_pairs}'
     
-class IncomeStatement:
+class BalanceSheet:
     def __init__(self):
         self.lines = []
 
