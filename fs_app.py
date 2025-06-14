@@ -1,6 +1,8 @@
 import easyocr
 import cv2
 import re
+import pickle
+import os
 from pdf2image import convert_from_path
 from PIL import Image, ImageOps 
 
@@ -18,15 +20,22 @@ larger = higher_clarity.resize(
 )
 larger.save("high_contrast_page.png")
 
-reader = easyocr.Reader(['en'])
-results = reader.readtext(
-    "high_contrast_page.png",
-    width_ths = 70
-    )
+image_filename = os.path.basename(image_path).replace(".png", "")
+cache_file = f"ocr_cache_{image_filename}.pkl"
+
+if os.path.exists(cache_file):
+    with open(cache_file, "rb") as f:
+        results = pickle.load(f)
+    print(f"Loaded OCR results from cache file: {cache_file}")
+else:
+    reader = easyocr.Reader(['en'])
+    results = reader.readtext("high_contrast_page.png", width_ths=70)
+    with open(cache_file, "wb") as f:
+        pickle.dump(results, f)
 
 raw_text = [text for _, text, _ in results]
-print("===RAW TEXT===\n", raw_text)
-print('\n')
+#print("===RAW TEXT===\n", raw_text)
+#print('\n')
 
 def clean_data(data, debug=False):
     cleaned = []
@@ -52,32 +61,49 @@ def clean_data(data, debug=False):
             cleaned.append(stripped)
     return cleaned
 
-def build_fs(clean_data):
-    headings = []
-    line_items = []
-    basic_line_item = re.compile(
-    r"""(?ix)
-    ^[A-Za-z0-9\s\-',();:&]+?              # label: words and common punctuation
-    (?:\$?\s*\d{1,3}(?:,\d{3})*)\s+        # first number with optional $ and spacing
-    (?:\$?\s*\d{1,3}(?:,\d{3})*)$          # second number with optional $ and spacing
-    """
-    )
 
-
-    print('===CLEAN_DATA===\n', clean_data)
-    print()
+def get_date(clean_data):
+    extract_date = re.compile(r'(\d{4}).*(\d{4})')
     for line in clean_data:
-        if basic_line_item.match(line):
-            line_items.append(line)
+        found_years = extract_date.search(line)
+        if found_years:
+            y1 = found_years.group(1)
+            y2 = found_years.group(2)
+            return (int(y1), int(y2))
+    return (None, None)
+
+
+def build_bs(clean_data):
+    new_bs = BalanceSheet()
+    line_item = re.compile(r"""(?ix)
+    ^([A-Za-z0-9\s\-',();:&$.]+?)            # (1) Label 
+    \s*                                      # Space between label and first number
+    (\(?\d{1,3}(?:,\d{3})*\)?)               # (2) First number (with optional parentheses)
+    \s*                                      # Optional spacing
+    (\(?\d{1,3}(?:,\d{3})*\)?)$              # (3) Second number (with optional parentheses)
+    """)
+
+    y1, y2 = get_date(clean_data)
+
+    for line in clean_data:
+        match = line_item.match(line)
+        if match:
+            label = match.group(1).strip()
+            try:
+                y1_val = float(match.group(2).replace(',', '').replace('(', '-').replace(')', '').replace('$', ''))
+                y2_val = float(match.group(3).replace(',', '').replace('(', '-').replace(')', '').replace('$', ''))
+            except ValueError:
+                print(f"Warning: Could not parse line: {line}")
+                continue
+            new_line_item = LineItem(label)
+            new_line_item.add_data(y1, y1_val)
+            new_line_item.add_data(y2, y2_val)
+            new_bs.add_line_item(new_line_item)
         else:
-            headings.append(line)
-    print('===HEADINGS===\n', headings)
-    print()
+            new_line_item = LineItem(line)
+            new_bs.add_line_item(new_line_item)
 
-    print('===LINE_ITEMS===\n', line_items)
-    print()
-
-    print(f'Missing: {set(clean_data) - set(headings) - set(line_items)}')
+    return new_bs
 
 
 def debug_output(data, verbose=False):
@@ -91,15 +117,7 @@ def debug_output(data, verbose=False):
         cv2.putText(img, text, bbox[0], cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
     cv2.imwrite("debug_overlay1.png", img)
 
-
-debug_output(results)
 cleaned = clean_data(raw_text)
-# print(cleaned)
-if '13,5' in raw_text:
-    print('found in raw')
-if '13,5' in cleaned:
-    print('found in cleaned')
-build_fs(cleaned)
 
 class LineItem:
     def __init__(self, name):
@@ -120,12 +138,12 @@ class BalanceSheet:
     def __init__(self):
         self.lines = []
 
-    def add_line_items(self, data):
+    def add_line_item(self, data):
         assert isinstance(data, (LineItem))
         self.lines.append(data)
 
-test = LineItem('D&A')
-test.add_data(2025, 1000)
-test.add_data(2024, 1000)
-test.add_data(2023, 1000)
-# print(test)
+    def __str__(self):
+        return "\n".join(str(line) for line in self.lines)
+
+result = build_bs(cleaned)
+print(result)
