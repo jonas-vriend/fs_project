@@ -3,12 +3,15 @@ import cv2
 import re
 import pickle
 import os
+import csv
 from pdf2image import convert_from_path
 from PIL import Image, ImageOps 
 
-images = convert_from_path("apple_bs.pdf", dpi=300)
+pdf_path = "bs_17.pdf"
+images = convert_from_path(pdf_path, dpi=300)
+pdf_basename = os.path.splitext(os.path.basename(pdf_path))[0]
+image_path = f"{pdf_basename}_page1.png"
 image = images[0]
-image_path = "temp_page.png"
 image.save(image_path)
 
 higher_clarity = Image.open(image_path).convert("L") 
@@ -20,7 +23,7 @@ larger = higher_clarity.resize(
 )
 larger.save("high_contrast_page.png")
 
-image_filename = os.path.basename(image_path).replace(".png", "")
+image_filename = os.path.splitext(os.path.basename(image_path))[0]
 cache_file = f"ocr_cache_{image_filename}.pkl"
 
 if os.path.exists(cache_file):
@@ -39,11 +42,30 @@ raw_text = [text for _, text, _ in results]
 
 def clean_data(data, debug=False):
     cleaned = []
-    unwanted_word = re.compile(r'^[^A-Z][a-z]{1,9}$')
-    suspicious_digits = re.compile(r'\b\d{1,3},\d{1,2}\b')
+    unwanted_word = re.compile(r'^[a-z]{1,9}$') # checks for standalone short lowercase words that are likely noise
+    suspicious_digits = re.compile(r'\b\d{1,3},\d{1,2}\b') # checks for standalone digits that are likely noise
     end = re.compile(r'(?i)total.*liabilit(?:y|ies).*equity.*\d+')
+    value_line = re.compile(r"""(?ix)
+        ^[A-Za-z0-9\s\-',();:&$\.]+?        # label
+        \s*
+        (?:\$?\s*)?
+        (\(?\d{1,3}(?:,\d{3})*\)?)          # value 1
+        \s*
+        (?:\$?\s*)?
+        (\(?\d{1,3}(?:,\d{3})*\)?)$         # value 2
+    """)
+    multi_line_continuation = re.compile(r"""(?ix)
+        ^[a-z]                                   # must start lowercase
+        [A-Za-z0-9\s\-',();:&$\.]*?              # label text
+        \s*                                      # space
+        (?:\$?\s*)?                              # optional dollar sign and space
+        (\(?\d{1,3}(?:,\d{3})*\)?)               # first number
+        \s*                                      # space
+        (?:\$?\s*)?                              # optional dollar sign and space
+        (\(?\d{1,3}(?:,\d{3})*\)?)$              # second number
+    """)
     for line in data:
-        stripped = line.strip()
+        stripped = line.strip().replace('_', '')
         if debug:
             print(f"LINE: '{stripped}'")
         if unwanted_word.match(stripped):
@@ -57,6 +79,15 @@ def clean_data(data, debug=False):
         elif end.match(stripped):
             cleaned.append(stripped)
             break
+        elif multi_line_continuation.match(stripped) and cleaned is not []:
+            prev = cleaned[-1]
+            if not value_line.match(prev):
+                if debug:
+                    print(f"MERGING '{prev}' + '{stripped}'")
+                cleaned[-1] = prev + ' ' + stripped
+                continue
+            else:
+                cleaned.append(stripped)
         else:
             cleaned.append(stripped)
     return cleaned
@@ -76,12 +107,15 @@ def get_date(clean_data):
 def build_bs(clean_data):
     new_bs = BalanceSheet()
     line_item = re.compile(r"""(?ix)
-    ^([A-Za-z0-9\s\-',();:&$.]+?)            # (1) Label 
-    \s*                                      # Space between label and first number
-    (\(?\d{1,3}(?:,\d{3})*\)?)               # (2) First number (with optional parentheses)
-    \s*                                      # Optional spacing
-    (\(?\d{1,3}(?:,\d{3})*\)?)$              # (3) Second number (with optional parentheses)
+        ^([A-Za-z0-9\s\-',();:&$\.]+?)        # (1) Label with any characters, including optional $
+        \s*                                   # optional space
+        (?:\$?\s*)?                           # optional dollar sign and spaces before first number
+        (\(?\d{1,3}(?:,\d{3})*\)?)            # (2) First number (with optional parens)
+        \s*                                   # optional space
+        (?:\$?\s*)?                           # optional dollar sign and spaces before second number
+        (\(?\d{1,3}(?:,\d{3})*\)?)$           # (3) Second number (with optional parens)
     """)
+
 
     y1, y2 = get_date(clean_data)
 
@@ -104,6 +138,24 @@ def build_bs(clean_data):
             new_bs.add_line_item(new_line_item)
 
     return new_bs
+
+def export_balance_sheet(bs, filename="balance_sheet.csv"):
+
+    all_years = sorted(
+        {year for item in bs.lines for year in item.data.keys()},
+        reverse=True
+    )
+
+    with open(filename, "w", newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(["Label"] + all_years)
+
+        for item in bs.lines:
+            row = [item.name]
+            for year in all_years:
+                value = item.data.get(year, "")
+                row.append(value)
+            writer.writerow(row)
 
 
 def debug_output(data, verbose=False):
@@ -146,4 +198,5 @@ class BalanceSheet:
         return "\n".join(str(line) for line in self.lines)
 
 result = build_bs(cleaned)
-print(result)
+export_balance_sheet(result)
+debug_output(results)
