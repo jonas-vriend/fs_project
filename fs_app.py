@@ -7,7 +7,7 @@ import csv
 from pdf2image import convert_from_path
 from PIL import Image, ImageOps 
 
-pdf_path = "bs_15.pdf"
+pdf_path = "bs_17.pdf"
 images = convert_from_path(pdf_path, dpi=300)
 pdf_basename = os.path.splitext(os.path.basename(pdf_path))[0]
 image_path = f"{pdf_basename}_page1.png"
