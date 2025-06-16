@@ -45,25 +45,24 @@ def build_bs(data, debug=False):
     suspicious_digits = re.compile(r'\b\d{1,3},\d{1,2}\b') # checks for standalone digits that are likely noise
     end = re.compile(r'(?i)total.*liabilit(?:y|ies).*equity.*\d+')
     line_item = re.compile(r"""(?ix)
-        ^([A-Za-z0-9\s\-',();:&$\.]+?)        # label
-        \s*
-        (?:\$?\s*)?
-        (\(?\d{1,3}(?:,\d{3})*\)?)          # value 1
-        \s*
-        (?:\$?\s*)?
-        (\(?\d{1,3}(?:,\d{3})*\)?)$         # value 2
+        ^([A-Za-z0-9\s\-',();:&$\.]+?)          # (1) label
+        \s*                                     
+        (                                       # (2) one or more values
+            (?:\s*\$?\s*\(?\d{1,3}(?:,\d{3})*\)?)+
+        )$
     """)
+
     continuation = re.compile(r"""(?ix)
-        ^[a-z]                                   # must start lowercase
-        [A-Za-z0-9\s\-',();:&$\.]*?              # label text
-        \s*                                      # space
-        (?:\$?\s*)?                              # optional dollar sign and space
-        (\(?\d{1,3}(?:,\d{3})*\)?)               # first number
-        \s*                                      # space
-        (?:\$?\s*)?                              # optional dollar sign and space
-        (\(?\d{1,3}(?:,\d{3})*\)?)$              # second number
+        ^[a-z]                                       # must start with lowercase
+        [A-Za-z0-9\s\-',();:&$\.]*?                  # label text
+        (                                            # (1) one or more values at the end
+            (?:\s*\$?\s*\(?\d{1,3}(?:,\d{3})*\)?)+
+        )$
     """)
-    extract_date = re.compile(r'(\d{4}).*(\d{4})')
+
+    extract_date = re.compile(r'^(?:\D*?(?:19|20)\d{2}){2,}\D*$')
+    year_pattern = re.compile(r'(?:19|20)\d{2}')
+
     for line in data:
         stripped = line.strip().replace('_', '')
         if debug:
@@ -81,7 +80,7 @@ def build_bs(data, debug=False):
             break
         elif continuation.match(stripped) and cleaned is not []:
             prev = cleaned[-1]
-            if not line_item.match(prev):
+            if not line_item.match(prev) and not line_item.match(stripped):
                 if debug:
                     print(f"MERGING '{prev}' + '{stripped}'")
                 cleaned[-1] = prev + ' ' + stripped
@@ -94,34 +93,29 @@ def build_bs(data, debug=False):
     new_bs = BalanceSheet()
 
     got_years = False
-    y1, y2 = None, None
+    years = set()
     for line in cleaned:
         if not got_years:
             found_years = extract_date.search(line)
             if found_years:
-                y1 = int(found_years.group(1))
-                y2 = int(found_years.group(2))
-                if debug:
-                    print('years found:', y1, y2)
+                matches = year_pattern.findall(line)
+                years.update(int(y) for y in matches)
+                years = sorted(years, reverse=True)
                 got_years = True
                 continue
             else:
                 if debug:
-                    print('skipped line before date captured:', cleaned)
+                    print('skipped line before date captured:', line)
                 continue
 
         match = line_item.match(line)
         if match:
             label = match.group(1).strip()
-            try:
-                y1_val = float(match.group(2).replace(',', '').replace('(', '-').replace(')', '').replace('$', ''))
-                y2_val = float(match.group(3).replace(',', '').replace('(', '-').replace(')', '').replace('$', ''))
-            except ValueError:
-                print(f"Warning: Could not parse line: {line}")
-                continue
+            vals = re.findall(r'\(?\d{1,3}(?:,\d{3})*\)?', match.group(2))
+            cleaned_vals = [float(val.replace(',', '').replace('(', '-').replace(')', '').replace('$', '')) for val in vals]
             new_line_item = LineItem(label)
-            new_line_item.add_data(y1, y1_val)
-            new_line_item.add_data(y2, y2_val)
+            for year, val in zip(years, cleaned_vals):
+                new_line_item.add_data(year, val)
             new_bs.add_line_item(new_line_item)
         else:
             new_line_item = LineItem(line)
