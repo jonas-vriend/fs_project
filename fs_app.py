@@ -4,10 +4,11 @@ import re
 import pickle
 import os
 import csv
+import numpy as np
 from pdf2image import convert_from_path
 from PIL import Image, ImageOps 
 
-pdf_path = "bs_17.pdf"
+pdf_path = "bs_23.pdf"
 images = convert_from_path(pdf_path, dpi=300)
 pdf_basename = os.path.splitext(os.path.basename(pdf_path))[0]
 image_path = f"{pdf_basename}_page1.png"
@@ -26,18 +27,48 @@ larger.save("high_contrast_page.png")
 image_filename = os.path.splitext(os.path.basename(image_path))[0]
 cache_file = f"ocr_cache_{image_filename}.pkl"
 
+def remove_horizontal_lines(pil_image):
+    # Convert to OpenCV format
+    img = np.array(pil_image)
+
+    # Binary image
+    _, binary = cv2.threshold(img, 200, 255, cv2.THRESH_BINARY_INV)
+
+    # Create horizontal kernel and detect horizontal lines
+    horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (40, 1))
+    detected_lines = cv2.morphologyEx(binary, cv2.MORPH_OPEN, horizontal_kernel, iterations=2)
+    color_img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    color_img[detected_lines > 0] = [0, 0, 255]  # red lines
+
+    Image.fromarray(color_img).save(os.path.join(os.getcwd(), "debug_detected_lines.png"))
+    # Subtract lines from the original
+    cleaned = cv2.bitwise_not(binary)
+    cleaned = cv2.bitwise_or(cleaned, detected_lines)
+
+    # Convert back to PIL
+    cleaned_rgb = cv2.cvtColor(cv2.bitwise_not(cleaned), cv2.COLOR_GRAY2RGB)
+    return Image.fromarray(cleaned_rgb)
+
 if os.path.exists(cache_file):
-    with open(cache_file, "rb") as f:
-        results = pickle.load(f)
-    print(f"Loaded OCR results from cache file: {cache_file}")
+    os.remove(cache_file) 
+    #with open(cache_file, "rb") as f:
+     #   results = pickle.load(f)
+    #print(f"Loaded OCR results from cache file: {cache_file}")
+    reader = easyocr.Reader(['en'])
+    processed = remove_horizontal_lines(larger)
+    processed.save("cleaned_no_lines.png")
+    results = reader.readtext("cleaned_no_lines.png", width_ths=70)
+    with open(cache_file, "wb") as f:
+        pickle.dump(results, f)
 else:
     reader = easyocr.Reader(['en'])
-    results = reader.readtext("high_contrast_page.png", width_ths=70)
+    processed = remove_horizontal_lines(larger)
+    processed.save("cleaned_no_lines.png")
+    results = reader.readtext("cleaned_no_lines.png", width_ths=70)
     with open(cache_file, "wb") as f:
         pickle.dump(results, f)
 
 raw_text = [text for _, text, _ in results]
-
 
 def build_bs(data, debug=False):
     cleaned = []
@@ -52,13 +83,12 @@ def build_bs(data, debug=False):
         )$
     """)
 
-    continuation = re.compile(r"""(?ix)
-        ^[a-z]                                       # must start with lowercase
+    continuation = re.compile(r"""(?x)
+        ^[^A-Z]                                      # must NOT start with uppercase
         [A-Za-z0-9\s\-',();:&$\.]*?                  # label text
-        (                                            # (1) one or more values at the end
-            (?:\s*\$?\s*\(?\d{1,3}(?:,\d{3})*\)?)+
-        )$
+        (?:\s*\$?\s*\(?\d{1,3}(?:,\d{3})*\)?)+$       # ends in at least one numeric value
     """)
+
 
     extract_date = re.compile(r'^(?:\D*?(?:19|20)\d{2}){2,}\D*$')
     year_pattern = re.compile(r'(?:19|20)\d{2}')
@@ -80,7 +110,7 @@ def build_bs(data, debug=False):
             break
         elif continuation.match(stripped) and cleaned is not []:
             prev = cleaned[-1]
-            if not line_item.match(prev) and not line_item.match(stripped):
+            if not line_item.match(prev) and line_item.match(stripped) and len(prev) > 40:
                 if debug:
                     print(f"MERGING '{prev}' + '{stripped}'")
                 cleaned[-1] = prev + ' ' + stripped
