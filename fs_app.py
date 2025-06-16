@@ -8,7 +8,7 @@ import numpy as np
 from pdf2image import convert_from_path
 from PIL import Image, ImageOps 
 
-pdf_path = "bs_23.pdf"
+pdf_path = "bs_17.pdf"
 images = convert_from_path(pdf_path, dpi=300)
 pdf_basename = os.path.splitext(os.path.basename(pdf_path))[0]
 image_path = f"{pdf_basename}_page1.png"
@@ -27,43 +27,64 @@ larger.save("high_contrast_page.png")
 image_filename = os.path.splitext(os.path.basename(image_path))[0]
 cache_file = f"ocr_cache_{image_filename}.pkl"
 
+import cv2
+import numpy as np
+from PIL import Image
+
 def remove_horizontal_lines(pil_image):
-    # Convert to OpenCV format
+    # Convert PIL to OpenCV grayscale
     img = np.array(pil_image)
 
-    # Binary image
+    # Binarize image (invert for easier line detection)
     _, binary = cv2.threshold(img, 200, 255, cv2.THRESH_BINARY_INV)
 
-    # Create horizontal kernel and detect horizontal lines
+    # Detect horizontal lines
     horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (40, 1))
     detected_lines = cv2.morphologyEx(binary, cv2.MORPH_OPEN, horizontal_kernel, iterations=2)
+
+    # Visualize horizontal lines on original for debugging
     color_img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-    color_img[detected_lines > 0] = [0, 0, 255]  # red lines
+    color_img[detected_lines > 0] = [0, 255, 0]  # green for detected lines
+    debug_line_path = "debug_detected_lines.png"
 
-    Image.fromarray(color_img).save(os.path.join(os.getcwd(), "debug_detected_lines.png"))
-    # Subtract lines from the original
-    cleaned = cv2.bitwise_not(binary)
-    cleaned = cv2.bitwise_or(cleaned, detected_lines)
+    Image.fromarray(color_img).save(debug_line_path)
 
-    # Convert back to PIL
-    cleaned_rgb = cv2.cvtColor(cv2.bitwise_not(cleaned), cv2.COLOR_GRAY2RGB)
-    return Image.fromarray(cleaned_rgb)
+    # Remove horizontal lines from binary
+    no_lines = cv2.bitwise_not(binary)
+    no_lines = cv2.bitwise_or(no_lines, detected_lines)
+    cleaned = cv2.bitwise_not(no_lines)
+
+    # Connected component analysis to remove small blobs
+    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(cleaned, connectivity=8)
+    filtered = np.zeros_like(cleaned)
+
+    for i in range(1, num_labels):
+        area = stats[i, cv2.CC_STAT_AREA]
+        if area >= 20:  # keep components with sufficient area
+            filtered[labels == i] = 255
+
+    # Convert to RGB for PIL
+    cleaned_rgb = cv2.cvtColor(filtered, cv2.COLOR_GRAY2RGB)
+    final_image = Image.fromarray(cleaned_rgb)
+
+    return final_image, debug_line_path
+
+
+
+
+
 
 if os.path.exists(cache_file):
-    os.remove(cache_file) 
-    #with open(cache_file, "rb") as f:
-     #   results = pickle.load(f)
-    #print(f"Loaded OCR results from cache file: {cache_file}")
-    reader = easyocr.Reader(['en'])
-    processed = remove_horizontal_lines(larger)
-    processed.save("cleaned_no_lines.png")
-    results = reader.readtext("cleaned_no_lines.png", width_ths=70)
-    with open(cache_file, "wb") as f:
-        pickle.dump(results, f)
+    #os.remove(cache_file) 
+    with open(cache_file, "rb") as f:
+        results = pickle.load(f)
+    print(f"Loaded OCR results from cache file: {cache_file}")
+
 else:
     reader = easyocr.Reader(['en'])
-    processed = remove_horizontal_lines(larger)
+    processed, debug_path = remove_horizontal_lines(larger)
     processed.save("cleaned_no_lines.png")
+    print(f"Debug image saved to: {debug_path}")
     results = reader.readtext("cleaned_no_lines.png", width_ths=70)
     with open(cache_file, "wb") as f:
         pickle.dump(results, f)
@@ -173,7 +194,7 @@ def export_balance_sheet(bs, filename="balance_sheet.csv"):
 
 
 def debug_output(data, verbose=False):
-    img = cv2.imread("high_contrast_page.png")
+    img = cv2.imread("cleaned_no_lines.png")
 
     for bbox, text, conf in data:
         if verbose:
@@ -181,7 +202,7 @@ def debug_output(data, verbose=False):
         bbox = [tuple(map(int, point)) for point in bbox]
         cv2.rectangle(img, bbox[0], bbox[2], (0, 255, 0), 2)
         cv2.putText(img, text, bbox[0], cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
-    cv2.imwrite("debug_overlay1.png", img)
+    cv2.imwrite("debug_overlay.png", img)
 
 
 class LineItem:
