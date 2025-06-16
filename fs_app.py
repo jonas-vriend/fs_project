@@ -7,7 +7,7 @@ import csv
 from pdf2image import convert_from_path
 from PIL import Image, ImageOps 
 
-pdf_path = "bs_17.pdf"
+pdf_path = "bs_15.pdf"
 images = convert_from_path(pdf_path, dpi=300)
 pdf_basename = os.path.splitext(os.path.basename(pdf_path))[0]
 image_path = f"{pdf_basename}_page1.png"
@@ -37,16 +37,15 @@ else:
         pickle.dump(results, f)
 
 raw_text = [text for _, text, _ in results]
-#print("===RAW TEXT===\n", raw_text)
-#print('\n')
 
-def clean_data(data, debug=False):
+
+def build_bs(data, debug=False):
     cleaned = []
     unwanted_word = re.compile(r'^[a-z]{1,9}$') # checks for standalone short lowercase words that are likely noise
     suspicious_digits = re.compile(r'\b\d{1,3},\d{1,2}\b') # checks for standalone digits that are likely noise
     end = re.compile(r'(?i)total.*liabilit(?:y|ies).*equity.*\d+')
-    value_line = re.compile(r"""(?ix)
-        ^[A-Za-z0-9\s\-',();:&$\.]+?        # label
+    line_item = re.compile(r"""(?ix)
+        ^([A-Za-z0-9\s\-',();:&$\.]+?)        # label
         \s*
         (?:\$?\s*)?
         (\(?\d{1,3}(?:,\d{3})*\)?)          # value 1
@@ -54,7 +53,7 @@ def clean_data(data, debug=False):
         (?:\$?\s*)?
         (\(?\d{1,3}(?:,\d{3})*\)?)$         # value 2
     """)
-    multi_line_continuation = re.compile(r"""(?ix)
+    continuation = re.compile(r"""(?ix)
         ^[a-z]                                   # must start lowercase
         [A-Za-z0-9\s\-',();:&$\.]*?              # label text
         \s*                                      # space
@@ -64,6 +63,7 @@ def clean_data(data, debug=False):
         (?:\$?\s*)?                              # optional dollar sign and space
         (\(?\d{1,3}(?:,\d{3})*\)?)$              # second number
     """)
+    extract_date = re.compile(r'(\d{4}).*(\d{4})')
     for line in data:
         stripped = line.strip().replace('_', '')
         if debug:
@@ -79,9 +79,9 @@ def clean_data(data, debug=False):
         elif end.match(stripped):
             cleaned.append(stripped)
             break
-        elif multi_line_continuation.match(stripped) and cleaned is not []:
+        elif continuation.match(stripped) and cleaned is not []:
             prev = cleaned[-1]
-            if not value_line.match(prev):
+            if not line_item.match(prev):
                 if debug:
                     print(f"MERGING '{prev}' + '{stripped}'")
                 cleaned[-1] = prev + ' ' + stripped
@@ -90,36 +90,26 @@ def clean_data(data, debug=False):
                 cleaned.append(stripped)
         else:
             cleaned.append(stripped)
-    return cleaned
 
-
-def get_date(clean_data):
-    extract_date = re.compile(r'(\d{4}).*(\d{4})')
-    for line in clean_data:
-        found_years = extract_date.search(line)
-        if found_years:
-            y1 = found_years.group(1)
-            y2 = found_years.group(2)
-            return (int(y1), int(y2))
-    return (None, None)
-
-
-def build_bs(clean_data):
     new_bs = BalanceSheet()
-    line_item = re.compile(r"""(?ix)
-        ^([A-Za-z0-9\s\-',();:&$\.]+?)        # (1) Label with any characters, including optional $
-        \s*                                   # optional space
-        (?:\$?\s*)?                           # optional dollar sign and spaces before first number
-        (\(?\d{1,3}(?:,\d{3})*\)?)            # (2) First number (with optional parens)
-        \s*                                   # optional space
-        (?:\$?\s*)?                           # optional dollar sign and spaces before second number
-        (\(?\d{1,3}(?:,\d{3})*\)?)$           # (3) Second number (with optional parens)
-    """)
 
+    got_years = False
+    y1, y2 = None, None
+    for line in cleaned:
+        if not got_years:
+            found_years = extract_date.search(line)
+            if found_years:
+                y1 = int(found_years.group(1))
+                y2 = int(found_years.group(2))
+                if debug:
+                    print('years found:', y1, y2)
+                got_years = True
+                continue
+            else:
+                if debug:
+                    print('skipped line before date captured:', cleaned)
+                continue
 
-    y1, y2 = get_date(clean_data)
-
-    for line in clean_data:
         match = line_item.match(line)
         if match:
             label = match.group(1).strip()
@@ -169,7 +159,6 @@ def debug_output(data, verbose=False):
         cv2.putText(img, text, bbox[0], cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
     cv2.imwrite("debug_overlay1.png", img)
 
-cleaned = clean_data(raw_text)
 
 class LineItem:
     def __init__(self, name):
@@ -197,6 +186,6 @@ class BalanceSheet:
     def __str__(self):
         return "\n".join(str(line) for line in self.lines)
 
-result = build_bs(cleaned)
+result = build_bs(raw_text, True)
 export_balance_sheet(result)
 debug_output(results)
