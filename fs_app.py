@@ -8,7 +8,7 @@ import numpy as np
 from pdf2image import convert_from_path
 from PIL import Image, ImageOps 
 
-pdf_path = "bs_17.pdf"
+pdf_path = "bs_15.pdf"
 images = convert_from_path(pdf_path, dpi=300)
 pdf_basename = os.path.splitext(os.path.basename(pdf_path))[0]
 image_path = f"{pdf_basename}_page1.png"
@@ -69,26 +69,24 @@ def remove_horizontal_lines(pil_image):
 
     return final_image, debug_line_path
 
+def get_data(cache=True):
+    if cache and os.path.exists(cache_file):
+        # os.remove(cache_file) 
+            with open(cache_file, "rb") as f:
+                results = pickle.load(f)
+            print(f"Loaded OCR results from cache file: {cache_file}")
+            return results
+    else:
+        reader = easyocr.Reader(['en'])
+        processed, debug_path = remove_horizontal_lines(larger)
+        processed.save("cleaned_no_lines.png")
+        print(f"Debug image saved to: {debug_path}")
+        results = reader.readtext("cleaned_no_lines.png", width_ths=100) #mostly did 70 if anything changes this might be a cause
+        with open(cache_file, "wb") as f:
+            pickle.dump(results, f)
+        return results
 
-
-
-
-
-if os.path.exists(cache_file):
-    #os.remove(cache_file) 
-    with open(cache_file, "rb") as f:
-        results = pickle.load(f)
-    print(f"Loaded OCR results from cache file: {cache_file}")
-
-else:
-    reader = easyocr.Reader(['en'])
-    processed, debug_path = remove_horizontal_lines(larger)
-    processed.save("cleaned_no_lines.png")
-    print(f"Debug image saved to: {debug_path}")
-    results = reader.readtext("cleaned_no_lines.png", width_ths=70)
-    with open(cache_file, "wb") as f:
-        pickle.dump(results, f)
-
+results = get_data(False)
 raw_text = [text for _, text, _ in results]
 
 def build_bs(data, debug=False):
@@ -97,10 +95,10 @@ def build_bs(data, debug=False):
     suspicious_digits = re.compile(r'\b\d{1,3},\d{1,2}\b') # checks for standalone digits that are likely noise
     end = re.compile(r'(?i)total.*liabilit(?:y|ies).*equity.*\d+')
     line_item = re.compile(r"""(?ix)
-        ^([A-Za-z0-9\s\-',();:&$\.]+?)          # (1) label
+        ^([A-Za-z0-9\s\-',();:&$/\.]+?)          # (1) label
         \s*                                     
         (                                       # (2) one or more values
-            (?:\s*\$?\s*\(?\d{1,3}(?:,\d{3})*\)?)+
+            (?:\s*\$?\s*\(?[\d,]+\)?)+
         )$
     """)
 
@@ -109,11 +107,9 @@ def build_bs(data, debug=False):
         [A-Za-z0-9\s\-',();:&$\.]*?                  # label text
         (?:\s*\$?\s*\(?\d{1,3}(?:,\d{3})*\)?)+$       # ends in at least one numeric value
     """)
-
-
     extract_date = re.compile(r'^(?:\D*?(?:19|20)\d{2}){2,}\D*$')
     year_pattern = re.compile(r'(?:19|20)\d{2}')
-
+    # malformed_vals = re.compile(r'[^0-9],\d+ | \d{1,3},\d{0,2} | \d+,\d{4,} | \d{4,},\d+')
     for line in data:
         stripped = line.strip().replace('_', '')
         if debug:
@@ -145,6 +141,7 @@ def build_bs(data, debug=False):
 
     got_years = False
     years = set()
+    malformed_lines = []
     for line in cleaned:
         if not got_years:
             found_years = extract_date.search(line)
@@ -153,6 +150,7 @@ def build_bs(data, debug=False):
                 years.update(int(y) for y in matches)
                 years = sorted(years, reverse=True)
                 got_years = True
+                num_years = len(years)
                 continue
             else:
                 if debug:
@@ -162,8 +160,18 @@ def build_bs(data, debug=False):
         match = line_item.match(line)
         if match:
             label = match.group(1).strip()
-            vals = re.findall(r'\(?\d{1,3}(?:,\d{3})*\)?', match.group(2))
-            cleaned_vals = [float(val.replace(',', '').replace('(', '-').replace(')', '').replace('$', '')) for val in vals]
+            vals = vals = re.findall(r'\(?[\d,]+\)?', match.group(2))
+            cleaned_vals = []
+            for val in vals:
+                try:
+                    cleaned_val = float(val.replace(',', '').replace('(', '-').replace(')', '').replace('$', ''))
+                    cleaned_vals.append(cleaned_val)
+                except ValueError:
+                    if debug:
+                        print(f"[Warning] Skipping malformed value: '{val}' in line '{label}'")
+                    continue
+                cleaned_vals += [0.0] * (num_years - len(cleaned_vals))
+                malformed_lines.append(label)
             new_line_item = LineItem(label)
             for year, val in zip(years, cleaned_vals):
                 new_line_item.add_data(year, val)
@@ -233,4 +241,4 @@ class BalanceSheet:
 
 result = build_bs(raw_text, True)
 export_balance_sheet(result)
-debug_output(results)
+debug_output(results, True)
