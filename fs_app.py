@@ -8,7 +8,7 @@ import numpy as np
 from pdf2image import convert_from_path
 from PIL import Image, ImageOps 
 
-pdf_path = "bs_15.pdf"
+pdf_path = "bs_21.pdf"
 images = convert_from_path(pdf_path, dpi=300)
 pdf_basename = os.path.splitext(os.path.basename(pdf_path))[0]
 image_path = f"{pdf_basename}_page1.png"
@@ -88,7 +88,7 @@ def get_data(cache=True):
     
     return results
 
-results = get_data()
+results = get_data(False)
 raw_text = [text for _, text, _ in results]
 
 def build_bs(data, debug=False):
@@ -98,19 +98,18 @@ def build_bs(data, debug=False):
     suspicious_digits = re.compile(r'\b\d{1,3},\d{1,2}\b') # checks for standalone digits that are likely noise
     end = re.compile(r'(?i)total.*liabilit(?:y|ies).*equity.*\d+')
     line_item = re.compile(r"""(?ix)
-        ^([A-Za-z0-9\s\-',();:&$\.]+?)          # (1) label
+        ^([A-Za-z0-9\s\-',();:&$/\.]+?)          # (1) label
         \s*                                     
         (                                       # (2) one or more values
-            (?:\s*\$?\s*\(?\d{1,3}(?:,\d{3})*\)?)+
+            (?:\s*\$?\s*\(?[\d,]+\)?|\(?\d+\)?)+ # allow either comma numbers or plain integers
         )$
     """)
 
     continuation = re.compile(r"""(?x)
         ^[^A-Z]                                      # must NOT start with uppercase
         [A-Za-z0-9\s\-',();:&$\.]*?                  # label text
-        (?:\s*\$?\s*\(?\d{1,3}(?:,\d{3})*\)?)+$       # ends in at least one numeric value
+        (?:\s*\$?\s*\(?[\d,]+\)?)+$                  # ends in at least one numeric value (with or without commas)
     """)
-
 
     extract_date = re.compile(r'^(?:\D*?(?:19|20)\d{2}){2,}\D*$')
     year_pattern = re.compile(r'(?:19|20)\d{2}')
@@ -164,7 +163,7 @@ def build_bs(data, debug=False):
         match = line_item.match(line)
         if match:
             label = match.group(1).strip()
-            vals = re.findall(r'\(?\d{1,3}(?:,\d{3})*\)?', match.group(2))
+            vals = re.findall(r'\(?[\d,]+\)?', match.group(2))
             cleaned_vals = [float(val.replace(',', '').replace('(', '-').replace(')', '').replace('$', '')) for val in vals]
             if len(cleaned_vals) < num_years:
                 if debug:
