@@ -108,10 +108,10 @@ def what_fs(cleaned):
                 is_score += 1
     
     if bs_score > is_score and bs_score >= 5:
-        print('bs', bs_score, is_score)
+        print(f'BS identified. BS score: {bs_score} IS score: {is_score}')
         return 'BALANCE_SHEET'
     elif is_score > bs_score and is_score >= 5:
-        print('is', bs_score, is_score)
+        print(f'IS identified. IS score: {is_score} BS score: {bs_score}')
         return 'INCOME_STATEMENT'
     else:
         raise ValueError('Could not recognize document')
@@ -147,7 +147,7 @@ def build_bs(data, debug=False):
     for line in data:
         stripped = line.strip().replace('_', '')
         if debug:
-            print(f"LINE: '{stripped}'")
+            print(f"STRIPPED LINE: '{stripped}'")
         if unwanted_word.match(stripped):
             if debug:
                 print(f'caught unwanted word: {stripped}')
@@ -183,14 +183,17 @@ def build_bs(data, debug=False):
                 years = sorted(years, reverse=True)
                 num_years = len(years)
                 got_years = True
+                if debug:
+                    print('captured years', years)
                 continue
             else:
                 if debug:
                     print('skipped line before date captured:', line)
                 continue
-
         match = line_item.match(line)
         if match:
+            if debug:
+                print('got line item match:', line)
             label = match.group(1).strip()
             vals = re.findall(r'\(?[\d,]+\)?', match.group(2))
             cleaned_vals = [float(val.replace(',', '').replace('(', '-').replace(')', '').replace('$', '')) for val in vals]
@@ -204,12 +207,14 @@ def build_bs(data, debug=False):
                 new_line_item.add_data(year, val)
             new_bs.add_line_item(new_line_item)
         else:
+            if debug:
+                print('Did not recognize as Line Item:', line)
             new_line_item = LineItem(line)
             new_bs.add_line_item(new_line_item)
         
-        if end.match(stripped):
-            new_line_item = LineItem(line)
-            new_bs.add_line_item(new_line_item)
+        if end.match(line):
+            if debug:
+                print('Ending at line: ', line)
             break
 
     return new_bs
