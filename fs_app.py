@@ -27,10 +27,6 @@ larger.save("high_contrast_page.png")
 image_filename = os.path.splitext(os.path.basename(image_path))[0]
 cache_file = f"ocr_cache_{image_filename}.pkl"
 
-import cv2
-import numpy as np
-from PIL import Image
-
 def remove_horizontal_lines(pil_image):
     # Convert PIL to OpenCV grayscale
     img = np.array(pil_image)
@@ -88,15 +84,49 @@ def get_data(cache=True):
     
     return results
 
-results = get_data(False)
+results = get_data()
 raw_text = [text for _, text, _ in results]
+
+def what_fs(cleaned):
+    BALANCE_SHEET_TERMS = ['balance sheet', 'asset', 'assets', 'liability',
+                            'liabilities', 'inventory', 'inventories', 'property', 'plant', 'equipment',
+                            'accounts payable', 'deferred revenue', "shareholder's equity", 'common stock', 'accounts receivable',
+                            'additional paid-in capital', 'accumulated other comprehensive income', 'cash and cash equivalents', 'retained earnings']
+    
+    INCOME_STATEMENT_TERMS = ['income statement', 'revenue', 'sales', 'gross margin', 'operating expenses', 'cost of goods sold',
+                              'research and development', 'net income', 'income', 'depreciation', 'tax', 'taxes']
+    
+    bs_score = 0
+    is_score = 0
+    for line in cleaned:
+        for b_term in BALANCE_SHEET_TERMS:
+            if b_term in line:
+                bs_score += 1
+        
+        for i_term in INCOME_STATEMENT_TERMS:
+            if i_term in line:
+                is_score += 1
+    
+    if bs_score > is_score and bs_score >= 5:
+        print('bs', bs_score, is_score)
+        return 'BALANCE_SHEET'
+    elif is_score > bs_score and is_score >= 5:
+        print('is', bs_score, is_score)
+        return 'INCOME_STATEMENT'
+    else:
+        raise ValueError('Could not recognize document')
+
+def get_end(result):
+    if result == 'BALANCE_SHEET':
+        return re.compile(r'(?i)total.*liabilit(?:y|ies).*equity.*\d+')
+    else:
+        return re.compile(r'(?i)net.*income.*(?:\(loss\))')
 
 def build_bs(data, debug=False):
     cleaned = []
     malformed = []
     unwanted_word = re.compile(r'^[a-z]{1,9}$') # checks for standalone short lowercase words that are likely noise
     suspicious_digits = re.compile(r'\b\d{1,3},\d{1,2}\b') # checks for standalone digits that are likely noise
-    end = re.compile(r'(?i)total.*liabilit(?:y|ies).*equity.*\d+')
     line_item = re.compile(r"""(?ix)
         ^([A-Za-z0-9\s\-',();:&$/\.]+?)          # (1) label
         \s*                                     
@@ -126,9 +156,6 @@ def build_bs(data, debug=False):
             if debug:
                 print(f'caught suspicious digits: {stripped}')
             continue
-        elif end.match(stripped):
-            cleaned.append(stripped)
-            break
         elif continuation.match(stripped) and cleaned is not []:
             prev = cleaned[-1]
             if not line_item.match(prev) and line_item.match(stripped) and len(prev) > 40:
@@ -141,10 +168,12 @@ def build_bs(data, debug=False):
         else:
             cleaned.append(stripped)
 
+    fs_type = what_fs(cleaned)
     new_bs = BalanceSheet()
 
     got_years = False
     years = set()
+    end = get_end(fs_type)
     for line in cleaned:
         if not got_years:
             found_years = extract_date.search(line)
@@ -177,6 +206,11 @@ def build_bs(data, debug=False):
         else:
             new_line_item = LineItem(line)
             new_bs.add_line_item(new_line_item)
+        
+        if end.match(stripped):
+            new_line_item = LineItem(line)
+            new_bs.add_line_item(new_line_item)
+            break
 
     return new_bs
 
