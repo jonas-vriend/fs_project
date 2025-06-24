@@ -8,7 +8,7 @@ import numpy as np
 from pdf2image import convert_from_path
 from PIL import Image, ImageOps 
 
-pdf_path = "Amazon_bs_24.pdf"
+pdf_path = "Amazon_is_22.pdf"
 images = convert_from_path(pdf_path, dpi=300)
 pdf_basename = os.path.splitext(os.path.basename(pdf_path))[0]
 image_path = f"{pdf_basename}_page1.png"
@@ -176,7 +176,7 @@ def build_fs(data, debug=False):
             cleaned.append(stripped)
 
     fs_type = what_fs(cleaned)
-    new_bs = FinancialStatement()
+    new_fs = FinancialStatement()
 
     got_years = False
     end = get_end(fs_type)
@@ -205,7 +205,7 @@ def build_fs(data, debug=False):
                 if debug:
                     print(f'Parentheses check failed. Treaing line as header: {line}')
                     new_line_item = LineItem(line)
-                    new_bs.add_line_item(new_line_item)
+                    new_fs.add_line_item(new_line_item)
                     continue
             cleaned_vals = [float(val.replace(',', '').replace('(', '-').replace(')', '').replace('$', '')) for val in vals]
             if len(cleaned_vals) < num_years:
@@ -216,19 +216,19 @@ def build_fs(data, debug=False):
             new_line_item = LineItem(label)
             for year, val in zip(years, cleaned_vals):
                 new_line_item.add_data(year, val)
-            new_bs.add_line_item(new_line_item)
+            new_fs.add_line_item(new_line_item)
         else:
             if debug:
                 print('Did not recognize as Line Item:', line)
             new_line_item = LineItem(line)
-            new_bs.add_line_item(new_line_item)
+            new_fs.add_line_item(new_line_item)
         
         if end.match(line):
             if debug:
                 print('Ending at line: ', line)
             break
 
-    return new_bs
+    return new_fs
 
 def export_fs(bs, filename=f"financial_statement.csv"):
 
