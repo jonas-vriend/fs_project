@@ -8,7 +8,7 @@ import numpy as np
 from pdf2image import convert_from_path
 from PIL import Image, ImageOps 
 
-pdf_path = "Amazon_is_22.pdf"
+pdf_path = "Amazon_bs_20.pdf"
 images = convert_from_path(pdf_path, dpi=300)
 pdf_basename = os.path.splitext(os.path.basename(pdf_path))[0]
 image_path = f"{pdf_basename}_page1.png"
@@ -84,10 +84,11 @@ def get_data(cache=True):
     
     return results
 
-results = get_data()
-raw_text = [text for _, text, _ in results]
+ocr_output = get_data()
+
 
 def what_fs(cleaned):
+    print('===WHAT_FS INPUT===\n', cleaned)
     BALANCE_SHEET_TERMS = ['balance sheet', 'asset', 'assets', 'liability',
                             'liabilities', 'inventory', 'inventories', 'property', 'plant', 'equipment',
                             'accounts payable', 'deferred revenue', "shareholder's equity", 'common stock', 'accounts receivable',
@@ -98,7 +99,8 @@ def what_fs(cleaned):
     
     bs_score = 0
     is_score = 0
-    for line in cleaned:
+
+    for line, _ in cleaned:
         for b_term in BALANCE_SHEET_TERMS:
             if b_term in line:
                 bs_score += 1
@@ -122,18 +124,10 @@ def get_end(result):
     else:
         return re.compile(r'(?i)net.*income.*(?:\(loss\))')
 
-# Fixes problem in amazon bs 24. This may not be a fool proof way to handle regex edge cases. Consider revising in the future. 
-def parentheses_check(vals):
-    for val in vals:
-        if ('(' in val and ')' not in val ) or (')' in val and '(' not in val):
-            return True
-    return False
-
 def build_fs(data, debug=False):
     cleaned = []
     malformed = []
-    unwanted_word = re.compile(r'^[a-z]{1,9}$') # checks for standalone short lowercase words that are likely noise
-    suspicious_digits = re.compile(r'\b\d{1,3},\d{1,2}\b') # checks for standalone digits that are likely noise
+    rborders = []
     line_item = re.compile(r"""(?ix)
         ^([A-Za-z0-9\s\-',();:&$/\.]+?)          # (1) label
         \s*                                     
@@ -151,36 +145,39 @@ def build_fs(data, debug=False):
     extract_date = re.compile(r'^(?:\D*?(?:19|20)\d{2}){2,}\D*$')
     year_pattern = re.compile(r'(?:19|20)\d{2}')
 
-    for line in data:
-        stripped = line.strip().replace('_', '')
+    for bbox, line, _ in data:
+        _, tr, _, _ = bbox
+        x, _ = tr
+        stripped = line.strip() # removed .replace('_', '')
         if debug:
             print(f"STRIPPED LINE: '{stripped}'")
-        if unwanted_word.match(stripped):
-            if debug:
-                print(f'caught unwanted word: {stripped}')
-            continue
-        elif suspicious_digits.match(stripped):
-            if debug:
-                print(f'caught suspicious digits: {stripped}')
-            continue
-        elif continuation.match(stripped) and cleaned is not []:
-            prev = cleaned[-1]
+
+        if line_item.match(stripped):
+            rborders.append(x)
+
+        if continuation.match(stripped) and cleaned is not []:
+            prev, _ = cleaned[-1]
+
             if not line_item.match(prev) and line_item.match(stripped):# and len(prev) > 40:
                 if debug:
                     print(f"MERGING '{prev}' + '{stripped}'")
-                cleaned[-1] = prev + ' ' + stripped
+                combined = prev + ' ' + stripped
+                cleaned[-1] = (combined, x)
                 continue
             else:
-                cleaned.append(stripped)
+                cleaned.append((stripped, x))
         else:
-            cleaned.append(stripped)
+            cleaned.append((stripped, x))
 
+    line_item_threshold = np.median(rborders)
+    if debug:
+        print(f'Line item threshold found: {line_item_threshold}')
     fs_type = what_fs(cleaned)
     new_fs = FinancialStatement()
 
     got_years = False
     end = get_end(fs_type)
-    for line in cleaned:
+    for line, x in cleaned:
         if not got_years:
             found_years = extract_date.search(line)
             if found_years:
@@ -201,9 +198,10 @@ def build_fs(data, debug=False):
                 print('got line item match:', line)
             label = match.group(1).strip()
             vals = re.findall(r'\(?[\d,]+\)?', match.group(2))
-            if parentheses_check(vals):
+            TOLERANCE = 50
+            if x > line_item_threshold + TOLERANCE or x < line_item_threshold - TOLERANCE:
                 if debug:
-                    print(f'Parentheses check failed. Treaing line as header: {line}')
+                    print(f'x coord check failed. x coord: {x} Treating line as header: {line}' )
                     new_line_item = LineItem(line)
                     new_fs.add_line_item(new_line_item)
                     continue
@@ -213,6 +211,14 @@ def build_fs(data, debug=False):
                     print(f'Added {(num_years - len(cleaned_vals))} 0(s) to line: {label}')
                 cleaned_vals = cleaned_vals + [0.0] * (num_years - len(cleaned_vals))
                 malformed.append(label)
+            if len(cleaned_vals) > num_years:
+                if debug:
+                    print(f'More vals than years detected in line: {line}')
+                excess = len(cleaned_vals) - num_years
+                discarded_text = cleaned_vals[:excess]
+                discarded_text_to_str = [str(int(val)) for val in discarded_text]
+                label += " " + " ".join(discarded_text_to_str)
+                cleaned_vals = cleaned_vals[-num_years:]
             new_line_item = LineItem(label)
             for year, val in zip(years, cleaned_vals):
                 new_line_item.add_data(year, val)
@@ -246,7 +252,6 @@ def export_fs(bs, filename=f"financial_statement.csv"):
                 value = item.data.get(year, "")
                 row.append(value)
             writer.writerow(row)
-
 
 def debug_output(data, verbose=False):
     img = cv2.imread("cleaned_no_lines.png")
@@ -286,6 +291,6 @@ class FinancialStatement:
     def __str__(self):
         return "\n".join(str(line) for line in self.lines)
 
-result = build_fs(raw_text, True)
+result = build_fs(ocr_output, True)
 export_fs(result)
-debug_output(results)
+debug_output(ocr_output)
