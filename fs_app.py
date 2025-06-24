@@ -8,7 +8,7 @@ import numpy as np
 from pdf2image import convert_from_path
 from PIL import Image, ImageOps 
 
-pdf_path = "bs_21.pdf"
+pdf_path = "Amazon_is_24.pdf"
 images = convert_from_path(pdf_path, dpi=300)
 pdf_basename = os.path.splitext(os.path.basename(pdf_path))[0]
 image_path = f"{pdf_basename}_page1.png"
@@ -122,7 +122,14 @@ def get_end(result):
     else:
         return re.compile(r'(?i)net.*income.*(?:\(loss\))')
 
-def build_bs(data, debug=False):
+# Fixes problem in amazon bs 24. This may not be a fool proof way to handle regex edge cases. Consider revising in the future. 
+def parentheses_check(vals):
+    for val in vals:
+        if ('(' in val and ')' not in val ) or (')' in val and '(' not in val):
+            return True
+    return False
+
+def build_fs(data, debug=False):
     cleaned = []
     malformed = []
     unwanted_word = re.compile(r'^[a-z]{1,9}$') # checks for standalone short lowercase words that are likely noise
@@ -130,9 +137,9 @@ def build_bs(data, debug=False):
     line_item = re.compile(r"""(?ix)
         ^([A-Za-z0-9\s\-',();:&$/\.]+?)          # (1) label
         \s*                                     
-        (                                       # (2) one or more values
-            (?:\s*\$?\s*\(?[\d,]+\)?|\(?\d+\)?)+ # allow either comma numbers or plain integers
-        )$
+        (                                        # (2) one or more values
+            (?:\s*\$?\s*\(?\d[\d,]*\)?)+         # only digits+commas inside optional ()
+        )\s*$
     """)
 
     continuation = re.compile(r"""(?x)
@@ -158,7 +165,7 @@ def build_bs(data, debug=False):
             continue
         elif continuation.match(stripped) and cleaned is not []:
             prev = cleaned[-1]
-            if not line_item.match(prev) and line_item.match(stripped) and len(prev) > 40:
+            if not line_item.match(prev) and line_item.match(stripped):# and len(prev) > 40:
                 if debug:
                     print(f"MERGING '{prev}' + '{stripped}'")
                 cleaned[-1] = prev + ' ' + stripped
@@ -196,6 +203,12 @@ def build_bs(data, debug=False):
                 print('got line item match:', line)
             label = match.group(1).strip()
             vals = re.findall(r'\(?[\d,]+\)?', match.group(2))
+            if parentheses_check(vals):
+                if debug:
+                    print(f'Parentheses check failed. Treaing line as header: {line}')
+                    new_line_item = LineItem(line)
+                    new_bs.add_line_item(new_line_item)
+                    continue
             cleaned_vals = [float(val.replace(',', '').replace('(', '-').replace(')', '').replace('$', '')) for val in vals]
             if len(cleaned_vals) < num_years:
                 if debug:
@@ -276,6 +289,6 @@ class BalanceSheet:
     def __str__(self):
         return "\n".join(str(line) for line in self.lines)
 
-result = build_bs(raw_text, True)
+result = build_fs(raw_text, True)
 export_balance_sheet(result)
 debug_output(results)
