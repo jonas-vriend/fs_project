@@ -8,7 +8,7 @@ import numpy as np
 from pdf2image import convert_from_path
 from PIL import Image, ImageOps 
 
-pdf_path = "Amazon_is_24.pdf"
+pdf_path = "Amazon_bs_24.pdf"
 images = convert_from_path(pdf_path, dpi=300)
 pdf_basename = os.path.splitext(os.path.basename(pdf_path))[0]
 image_path = f"{pdf_basename}_page1.png"
@@ -176,18 +176,16 @@ def build_fs(data, debug=False):
             cleaned.append(stripped)
 
     fs_type = what_fs(cleaned)
-    new_bs = BalanceSheet()
+    new_bs = FinancialStatement()
 
     got_years = False
-    years = set()
     end = get_end(fs_type)
     for line in cleaned:
         if not got_years:
             found_years = extract_date.search(line)
             if found_years:
                 matches = year_pattern.findall(line)
-                years.update(int(y) for y in matches)
-                years = sorted(years, reverse=True)
+                years = [int(y) for y in matches]
                 num_years = len(years)
                 got_years = True
                 if debug:
@@ -232,11 +230,10 @@ def build_fs(data, debug=False):
 
     return new_bs
 
-def export_balance_sheet(bs, filename="balance_sheet.csv"):
+def export_fs(bs, filename=f"financial_statement.csv"):
 
     all_years = sorted(
-        {year for item in bs.lines for year in item.data.keys()},
-        reverse=True
+        {year for item in bs.lines for year in item.data.keys()}
     )
 
     with open(filename, "w", newline='') as f:
@@ -275,10 +272,10 @@ class LineItem:
         self.data[year] = value
 
     def __str__(self):
-        data_pairs = [(year, self.data[year]) for year in sorted(self.data.keys(), reverse=True)]
+        data_pairs = [(year, self.data[year]) for year in sorted(self.data.keys())]
         return f'Line item: {self.name} | Values: {data_pairs}'
     
-class BalanceSheet:
+class FinancialStatement:
     def __init__(self):
         self.lines = []
 
@@ -290,5 +287,5 @@ class BalanceSheet:
         return "\n".join(str(line) for line in self.lines)
 
 result = build_fs(raw_text, True)
-export_balance_sheet(result)
+export_fs(result)
 debug_output(results)
