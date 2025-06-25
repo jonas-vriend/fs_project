@@ -8,24 +8,27 @@ import numpy as np
 from pdf2image import convert_from_path
 from PIL import Image, ImageOps 
 
-pdf_path = "Amazon_bs_20.pdf"
+# Get the input PDF path
+pdf_path = os.path.join("Financials", "IS", "Amazon_is_20.pdf")
+
+# Convert first page of PDF to image
 images = convert_from_path(pdf_path, dpi=300)
 pdf_basename = os.path.splitext(os.path.basename(pdf_path))[0]
-image_path = f"{pdf_basename}_page1.png"
-image = images[0]
-image.save(image_path)
+image_path = f"{pdf_basename}_page.png"
 
-higher_clarity = Image.open(image_path).convert("L") 
+
+# Now load and process the image
+higher_clarity = Image.open(image_path).convert("L")
+
 higher_clarity = ImageOps.autocontrast(higher_clarity)
 
 scale_factor = 2  
 larger = higher_clarity.resize(
     (higher_clarity.width * scale_factor, higher_clarity.height * scale_factor)
 )
-larger.save("high_contrast_page.png")
 
 image_filename = os.path.splitext(os.path.basename(image_path))[0]
-cache_file = f"ocr_cache_{image_filename}.pkl"
+cache_file = os.path.join("Cache", f"ocr_cache_{image_filename}.pkl")
 
 def remove_horizontal_lines(pil_image):
     # Convert PIL to OpenCV grayscale
@@ -41,7 +44,7 @@ def remove_horizontal_lines(pil_image):
     # Visualize horizontal lines on original for debugging
     color_img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
     color_img[detected_lines > 0] = [0, 255, 0]  # green for detected lines
-    debug_line_path = "debug_detected_lines.png"
+    debug_line_path = os.path.join("Debug", "debug_detected_lines.png")
 
     Image.fromarray(color_img).save(debug_line_path)
 
@@ -72,23 +75,22 @@ def get_data(cache=True):
         with open(cache_file, "rb") as f:
             results = pickle.load(f)
         print(f"Loaded OCR results from cache file: {cache_file}")
-
+        return results, processed_img
     else:
         reader = easyocr.Reader(['en'])
         processed, debug_path = remove_horizontal_lines(larger)
-        processed.save("cleaned_no_lines.png")
         print(f"Debug image saved to: {debug_path}")
-        results = reader.readtext("cleaned_no_lines.png", width_ths=70)
+        results = reader.readtext(np.array(processed), width_ths=70)
         with open(cache_file, "wb") as f:
             pickle.dump(results, f)
     
-    return results
+    return results, processed
 
-ocr_output = get_data()
+processed_img = remove_horizontal_lines(larger)[0]
+ocr_output, _ = get_data()
 
 
 def what_fs(cleaned):
-    print('===WHAT_FS INPUT===\n', cleaned)
     BALANCE_SHEET_TERMS = ['balance sheet', 'asset', 'assets', 'liability',
                             'liabilities', 'inventory', 'inventories', 'property', 'plant', 'equipment',
                             'accounts payable', 'deferred revenue', "shareholder's equity", 'common stock', 'accounts receivable',
@@ -122,7 +124,7 @@ def get_end(result):
     if result == 'BALANCE_SHEET':
         return re.compile(r'(?i)total.*liabilit(?:y|ies).*equity.*\d+')
     else:
-        return re.compile(r'(?i)net.*income.*(?:\(loss\))')
+        return re.compile(r'(?i)net.*income.*(?:\(loss\))?.*')
 
 def build_fs(data, debug=False):
     cleaned = []
@@ -253,8 +255,8 @@ def export_fs(bs, filename=f"financial_statement.csv"):
                 row.append(value)
             writer.writerow(row)
 
-def debug_output(data, verbose=False):
-    img = cv2.imread("cleaned_no_lines.png")
+def debug_output(data, processed_img, verbose=False):
+    img = np.array(processed_img)
 
     for bbox, text, conf in data:
         if verbose:
@@ -262,8 +264,7 @@ def debug_output(data, verbose=False):
         bbox = [tuple(map(int, point)) for point in bbox]
         cv2.rectangle(img, bbox[0], bbox[2], (0, 255, 0), 2)
         cv2.putText(img, text, bbox[0], cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
-    cv2.imwrite("debug_overlay.png", img)
-
+    cv2.imwrite(os.path.join("Debug", "debug_overlay.png"), img)
 
 class LineItem:
     def __init__(self, name):
@@ -293,4 +294,5 @@ class FinancialStatement:
 
 result = build_fs(ocr_output, True)
 export_fs(result)
-debug_output(ocr_output)
+debug_output(ocr_output, processed_img)
+
