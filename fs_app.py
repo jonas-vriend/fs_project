@@ -9,16 +9,13 @@ from pdf2image import convert_from_path
 from PIL import Image, ImageOps 
 
 # Get the input PDF path
-pdf_path = os.path.join("Financials", "IS", "Amazon_is_20.pdf")
+pdf_path = os.path.join("Financials", "IS", "Walmart_is_24.pdf")
 
 # Convert first page of PDF to image
 images = convert_from_path(pdf_path, dpi=300)
 pdf_basename = os.path.splitext(os.path.basename(pdf_path))[0]
-image_path = f"{pdf_basename}_page.png"
 
-
-# Now load and process the image
-higher_clarity = Image.open(image_path).convert("L")
+higher_clarity = images[0].convert("L")
 
 higher_clarity = ImageOps.autocontrast(higher_clarity)
 
@@ -27,7 +24,7 @@ larger = higher_clarity.resize(
     (higher_clarity.width * scale_factor, higher_clarity.height * scale_factor)
 )
 
-image_filename = os.path.splitext(os.path.basename(image_path))[0]
+image_filename = os.path.splitext(os.path.basename(pdf_path))[0]
 cache_file = os.path.join("Cache", f"ocr_cache_{image_filename}.pkl")
 
 def remove_horizontal_lines(pil_image):
@@ -35,7 +32,7 @@ def remove_horizontal_lines(pil_image):
     img = np.array(pil_image)
 
     # Binarize image (invert for easier line detection)
-    _, binary = cv2.threshold(img, 200, 255, cv2.THRESH_BINARY_INV)
+    _, binary = cv2.threshold(img, 160, 255, cv2.THRESH_BINARY_INV) # Very important: first number is threshold for whther something is treated as white or black which can delete entire sections if not careful
 
     # Detect horizontal lines
     horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (40, 1))
@@ -86,10 +83,6 @@ def get_data(cache=True):
     
     return results, processed
 
-processed_img = remove_horizontal_lines(larger)[0]
-ocr_output, _ = get_data()
-
-
 def what_fs(cleaned):
     BALANCE_SHEET_TERMS = ['balance sheet', 'asset', 'assets', 'liability',
                             'liabilities', 'inventory', 'inventories', 'property', 'plant', 'equipment',
@@ -124,7 +117,7 @@ def get_end(result):
     if result == 'BALANCE_SHEET':
         return re.compile(r'(?i)total.*liabilit(?:y|ies).*equity.*\d+')
     else:
-        return re.compile(r'(?i)net.*income.*(?:\(loss\))?.*')
+        return re.compile(r'(?i).*net income.*(?:\(loss\))?.*') # need to make this more robust. 
 
 def build_fs(data, debug=False):
     cleaned = []
@@ -225,16 +218,15 @@ def build_fs(data, debug=False):
             for year, val in zip(years, cleaned_vals):
                 new_line_item.add_data(year, val)
             new_fs.add_line_item(new_line_item)
+            if end.match(line):
+                if debug:
+                    print('Ending at line: ', line)
+                break
         else:
             if debug:
                 print('Did not recognize as Line Item:', line)
             new_line_item = LineItem(line)
             new_fs.add_line_item(new_line_item)
-        
-        if end.match(line):
-            if debug:
-                print('Ending at line: ', line)
-            break
 
     return new_fs
 
@@ -292,6 +284,8 @@ class FinancialStatement:
     def __str__(self):
         return "\n".join(str(line) for line in self.lines)
 
+processed_img = remove_horizontal_lines(larger)[0]
+ocr_output, _ = get_data()
 result = build_fs(ocr_output, True)
 export_fs(result)
 debug_output(ocr_output, processed_img)
