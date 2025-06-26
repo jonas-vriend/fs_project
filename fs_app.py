@@ -9,7 +9,7 @@ from pdf2image import convert_from_path
 from PIL import Image, ImageOps 
 
 # Get the input PDF path
-pdf_path = os.path.join("Financials", "IS", "Walmart_is_24.pdf")
+pdf_path = os.path.join("Financials", "BS", "Walmart_bs_24.pdf")
 
 # Convert first page of PDF to image
 images = convert_from_path(pdf_path, dpi=300)
@@ -32,7 +32,7 @@ def remove_horizontal_lines(pil_image):
     img = np.array(pil_image)
 
     # Binarize image (invert for easier line detection)
-    _, binary = cv2.threshold(img, 160, 255, cv2.THRESH_BINARY_INV) # Very important: first number is threshold for whther something is treated as white or black which can delete entire sections if not careful
+    _, binary = cv2.threshold(img, 160, 255, cv2.THRESH_BINARY_INV) # Very important: first number is threshold for whether something is treated as white or black which can delete entire sections if not careful
 
     # Detect horizontal lines
     horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (40, 1))
@@ -117,7 +117,7 @@ def get_end(result):
     if result == 'BALANCE_SHEET':
         return re.compile(r'(?i)total.*liabilit(?:y|ies).*equity.*\d+')
     else:
-        return re.compile(r'(?i).*net income.*(?:\(loss\))?.*') # need to make this more robust. 
+        return re.compile(r'(?i)^.*net\s+\(?income\)?(?:\s+\(loss\))?.*')
 
 def build_fs(data, debug=False):
     cleaned = []
@@ -171,6 +171,7 @@ def build_fs(data, debug=False):
     new_fs = FinancialStatement()
 
     got_years = False
+    end_collection = False
     end = get_end(fs_type)
     for line, x in cleaned:
         if not got_years:
@@ -189,6 +190,14 @@ def build_fs(data, debug=False):
                 continue
         match = line_item.match(line)
         if match:
+            if end.match(line):
+                if debug:
+                    print(f'Final line detected and included: {line}')
+                end_collection = True
+            elif end_collection:
+                if debug:
+                    print(f'Final line detected. Excluded: {line}')
+                break
             if debug:
                 print('got line item match:', line)
             label = match.group(1).strip()
@@ -218,11 +227,11 @@ def build_fs(data, debug=False):
             for year, val in zip(years, cleaned_vals):
                 new_line_item.add_data(year, val)
             new_fs.add_line_item(new_line_item)
-            if end.match(line):
-                if debug:
-                    print('Ending at line: ', line)
-                break
         else:
+            if end_collection:
+                if debug:
+                    print(f'Final line detected. Excluded: {line}')
+                break
             if debug:
                 print('Did not recognize as Line Item:', line)
             new_line_item = LineItem(line)
@@ -230,17 +239,17 @@ def build_fs(data, debug=False):
 
     return new_fs
 
-def export_fs(bs, filename=f"financial_statement.csv"):
+def export_fs(fs, filename=f"financial_statement.csv"):
 
     all_years = sorted(
-        {year for item in bs.lines for year in item.data.keys()}
+        {year for item in fs.lines for year in item.data.keys()}
     )
 
     with open(filename, "w", newline='') as f:
         writer = csv.writer(f)
         writer.writerow(["Label"] + all_years)
 
-        for item in bs.lines:
+        for item in fs.lines:
             row = [item.name]
             for year in all_years:
                 value = item.data.get(year, "")
@@ -289,4 +298,3 @@ ocr_output, _ = get_data()
 result = build_fs(ocr_output, True)
 export_fs(result)
 debug_output(ocr_output, processed_img)
-
