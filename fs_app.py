@@ -9,7 +9,7 @@ from pdf2image import convert_from_path
 from PIL import Image, ImageOps 
 
 # Get the input PDF path
-pdf_path = os.path.join("Financials", "BS", "Walmart_bs_24.pdf")
+pdf_path = os.path.join("Financials", "IS", "Walmart_is_24.pdf")
 
 # Convert first page of PDF to image
 images = convert_from_path(pdf_path, dpi=300)
@@ -32,14 +32,7 @@ def remove_horizontal_lines(pil_image):
     img = np.array(pil_image)
 
     # Binarize image (invert for easier line detection)
-    binary = cv2.adaptiveThreshold(
-    img,
-    maxValue=255,
-    adaptiveMethod=cv2.ADAPTIVE_THRESH_MEAN_C,
-    thresholdType=cv2.THRESH_BINARY_INV,
-    blockSize=15,  # size of neighborhood to calculate threshold
-    C=10           # value subtracted from the mean
-)
+    _, binary = cv2.threshold(img, 160, 255, cv2.THRESH_BINARY_INV) # Very important: first number is threshold for whether something is treated as white or black which can delete entire sections if not careful
 
     # Detect horizontal lines
     horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (40, 1))
@@ -263,11 +256,11 @@ def export_fs(fs, filename=f"financial_statement.csv"):
                 row.append(value)
             writer.writerow(row)
 
-def debug_output(data, processed_img, debug=False):
+def debug_output(data, processed_img, verbose=False):
     img = np.array(processed_img)
 
     for bbox, text, conf in data:
-        if debug:
+        if verbose:
             print(f"{text} (confidence: {conf:.2f})")
         bbox = [tuple(map(int, point)) for point in bbox]
         cv2.rectangle(img, bbox[0], bbox[2], (0, 255, 0), 2)
