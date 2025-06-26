@@ -32,7 +32,14 @@ def remove_horizontal_lines(pil_image):
     img = np.array(pil_image)
 
     # Binarize image (invert for easier line detection)
-    _, binary = cv2.threshold(img, 160, 255, cv2.THRESH_BINARY_INV) # Very important: first number is threshold for whether something is treated as white or black which can delete entire sections if not careful
+    binary = cv2.adaptiveThreshold(
+    img,
+    maxValue=255,
+    adaptiveMethod=cv2.ADAPTIVE_THRESH_MEAN_C,
+    thresholdType=cv2.THRESH_BINARY_INV,
+    blockSize=15,  # size of neighborhood to calculate threshold
+    C=10           # value subtracted from the mean
+)
 
     # Detect horizontal lines
     horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (40, 1))
@@ -256,11 +263,11 @@ def export_fs(fs, filename=f"financial_statement.csv"):
                 row.append(value)
             writer.writerow(row)
 
-def debug_output(data, processed_img, verbose=False):
+def debug_output(data, processed_img, debug=False):
     img = np.array(processed_img)
 
     for bbox, text, conf in data:
-        if verbose:
+        if debug:
             print(f"{text} (confidence: {conf:.2f})")
         bbox = [tuple(map(int, point)) for point in bbox]
         cv2.rectangle(img, bbox[0], bbox[2], (0, 255, 0), 2)
@@ -294,7 +301,7 @@ class FinancialStatement:
         return "\n".join(str(line) for line in self.lines)
 
 processed_img = remove_horizontal_lines(larger)[0]
-ocr_output, _ = get_data()
+ocr_output, _ = get_data(False)
 result = build_fs(ocr_output, True)
 export_fs(result)
 debug_output(ocr_output, processed_img)
