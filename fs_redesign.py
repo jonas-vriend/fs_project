@@ -14,7 +14,7 @@ from PIL import Image, ImageOps
 detect_vals = re.compile(r'^\(?-?\$?\d{1,3}(?:,\d{3})*(?:\.\d+)?\)?$')
 
 # Get the input PDF path
-pdf_path = os.path.join("Financials", "BS", "Apple_bs_21.pdf")
+pdf_path = os.path.join("Financials", "IS", "Amazon_is_20.pdf")
 
 # Convert first page of PDF to image
 images = convert_from_path(pdf_path, dpi=300)
@@ -95,7 +95,7 @@ def get_coords(bbox):
     return (x1, x2, y)
 
 def get_y_bounds(list_of_coords, num_years):
-    cols = [[] for _ in range(num_years)]  # Properly allocate lists
+    cols = [[] for _ in range(num_years)]
 
     for coords in list_of_coords:
         if not len(coords) == num_years:
@@ -128,7 +128,7 @@ def preprocess_text(ocr_output, debug=False, y_thresh=50):
                     print(f'DETECTED VAL: {line}')
                 line_val_coords.append(x2)
                 start_line.append((line, x2))
-            elif line.strip() == '$':
+            elif line.strip() == '$' or line.strip() == 'S':
                 continue  # Ignore isolated $
             else:
                 if debug:
@@ -172,6 +172,8 @@ def preprocess_text(ocr_output, debug=False, y_thresh=50):
         print(f'VAL COORDS: {all_val_coords}')
     
     col_coords = get_y_bounds(all_val_coords, num_years)
+    if debug:
+        print(f'Captured col_coords: {col_coords}')
     return col_coords, lines
 
 
@@ -214,7 +216,7 @@ def get_end(result):
         return re.compile(r'(?i)^.*net\s+\(?income\)?(?:\s+\(loss\))?.*')
 
 
-def build_fs(col_coords, lines, debug=False, val_x_thresh=25):
+def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
     extract_date = re.compile(r'^(?:\D*?(?:19|20)\d{2}){2,}\D*$')
     year_pattern = re.compile(r'(?:19|20)\d{2}')
 
@@ -271,7 +273,7 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=25):
                         new_line_item.add_data(year, 0)
                 else:
                     if debug:
-                        print(f'LINE FAILED COORD CHECK: {label}')
+                        print(f'VAL FAILED COORD CHECK: {val} VAL COORD: {val_coord} COL COORD: {col_coord}')
                     continue
 
                 if len(vals) < len(years) and year not in new_line_item.get_data().keys():
@@ -315,7 +317,7 @@ def export_fs(fs, filename=f"financial_statement.csv"):
             writer.writerow(row)
 
 
-def debug_output(data, processed_img, verbose=False):
+def debug_output(data, processed_img, col_coords, val_x_thresh=75, verbose=False):
     img = np.array(processed_img)
 
     for bbox, text, conf in data:
@@ -324,7 +326,23 @@ def debug_output(data, processed_img, verbose=False):
         bbox = [tuple(map(int, point)) for point in bbox]
         cv2.rectangle(img, bbox[0], bbox[2], (0, 255, 0), 2)
         cv2.putText(img, text, bbox[0], cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
+
+    if col_coords:
+        height = img.shape[0]
+        for x in col_coords:
+            x_int = int(round(x))
+            # Vertical dashed red line
+            for y in range(0, height, 20):
+                cv2.line(img, (x_int, y), (x_int, y + 10), (0, 0, 255), 5)
+
+            # Confidence bar (horizontal range = ±val_x_thresh)
+            err_bar_y = int(height * 0.50)
+            left = int(x - val_x_thresh)
+            right = int(x + val_x_thresh)
+            cv2.line(img, (left, err_bar_y), (right, err_bar_y), (0, 0, 255), 5)
+
     cv2.imwrite(os.path.join("Debug", "debug_overlay.png"), img)
+
 
 class LineItem:
     def __init__(self, name):
@@ -356,11 +374,11 @@ class FinancialStatement:
         return "\n".join(str(line) for line in self.lines)
 
 processed_img = remove_horizontal_lines(larger)[0]
-ocr_output, _ = get_data()
+ocr_output, _ = get_data(False)
 #for bbox, line, _ in ocr_output:
  #   print(bbox, line) 
 col_coords, lines = preprocess_text(ocr_output, True)
 print(f'===LINES===\n: {lines}')
-completed = build_fs(col_coords, lines, True, 25)
+completed = build_fs(col_coords, lines, True)
 export_fs(completed)
-debug_output(ocr_output, processed_img)
+debug_output(ocr_output, processed_img, col_coords)
