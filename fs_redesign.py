@@ -113,44 +113,58 @@ def preprocess_text(ocr_output, debug=False, y_thresh=50):
     lines = []
 
     start_bbox, first_line, _ = ocr_output[0]
-    if debug:
-        print(f'Got start line: {first_line}')
     _, _, start_y = get_coords(start_bbox)
-    start_line = [first_line]
+    
+    label_parts = []  # Holds segments of the label on current line
+    line_val_coords = []  # Holds x2 coords of values on current line
+    start_line = []  # Holds (val, x2) pairs
 
-    line_val_coords = []
-    for bbox, line, _ in ocr_output[1:]: # issue rn where it skips the last line.
+    for bbox, line, _ in ocr_output[1:]:
         x1, x2, y = get_coords(bbox)
+
         if y in range(start_y - y_thresh, start_y + y_thresh):
-            if debug:
-                print(f'LINE: {line} on same line')
             if detect_vals.match(line):
                 if debug:
                     print(f'DETECTED VAL: {line}')
-                line_val_coords += [x2]
-                start_line += [(line, x2)]
+                line_val_coords.append(x2)
+                start_line.append((line, x2))
+            elif line.strip() == '$':
+                continue  # Ignore isolated $
             else:
                 if debug:
-                    print(f'DETECTED TEXT {line}')
-                if line == '$':
-                    continue
-                start_line += [line]
+                    print(f'DETECTED LABEL FRAGMENT: {line}')
+                label_parts.append(line)
         else:
+            # Finalize previous line
+            full_label = ' '.join(label_parts).strip()
+            lines.append([full_label] + start_line)
             if debug:
-                print(f'NEW LINE DETECTED: {line}')
-                print(f'APPENDING COMPLETED LINE {start_line}')
-            lines.append(start_line)
-            start_line = [line]
-            start_y = y
-            num_vals.append(len(line_val_coords))
-            if not line_val_coords == []:
+                print(f'APPENDING COMPLETED LINE: {[full_label] + start_line}')
+            if line_val_coords:
                 all_val_coords.append(line_val_coords)
+                num_vals.append(len(line_val_coords))
+
+            # Reset everything for new line
+            start_y = y
             line_val_coords = []
-    if start_line:
-        lines.append(start_line)
+            start_line = []
+            label_parts = []
+
+            if detect_vals.match(line):
+                line_val_coords.append(x2)
+                start_line.append((line, x2))
+            elif line.strip() != '$':
+                label_parts = [line]
+
+    # Handle last line
+    if label_parts or start_line:
+        full_label = ' '.join(label_parts).strip()
+        lines.append([full_label] + start_line)
+        if debug:
+            print(f'APPENDING FINAL LINE: {[full_label] + start_line}')
         if line_val_coords:
             all_val_coords.append(line_val_coords)
-        num_vals.append(len(line_val_coords))
+            num_vals.append(len(line_val_coords))
 
     num_years = Counter(num_vals).most_common(1)[0][0]
     if debug:
@@ -158,7 +172,8 @@ def preprocess_text(ocr_output, debug=False, y_thresh=50):
         print(f'VAL COORDS: {all_val_coords}')
     
     col_coords = get_y_bounds(all_val_coords, num_years)
-    return (col_coords, lines)
+    return col_coords, lines
+
 
 def what_fs(cleaned):
     BALANCE_SHEET_TERMS = ['balance sheet', 'asset', 'assets', 'liability',
@@ -172,13 +187,14 @@ def what_fs(cleaned):
     bs_score = 0
     is_score = 0
 
-    for line, _ in cleaned:
+    for line in cleaned:
+        text = line[0]
         for b_term in BALANCE_SHEET_TERMS:
-            if b_term in line:
+            if b_term in text.lower():
                 bs_score += 1
         
         for i_term in INCOME_STATEMENT_TERMS:
-            if i_term in line:
+            if i_term in text.lower():
                 is_score += 1
     
     if bs_score > is_score and bs_score >= 5:
@@ -193,7 +209,7 @@ def what_fs(cleaned):
 
 def get_end(result):
     if result == 'BALANCE_SHEET':
-        return re.compile(r'(?i)total.*liabilit(?:y|ies).*equity.*\d+')
+        return re.compile(r'(?i)total.*liabilit(?:y|ies).*equity')
     else:
         return re.compile(r'(?i)^.*net\s+\(?income\)?(?:\s+\(loss\))?.*')
 
@@ -209,10 +225,11 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=25):
     end = get_end(fs_type) #  regex computer uses to determine end
 
     for line in lines:
+        label = line[0]
         if not got_years:
-            found_years = extract_date.search(line)
+            found_years = extract_date.search(label)
             if found_years:
-                matches = year_pattern.findall(line)
+                matches = year_pattern.findall(label)
                 years = [int(y) for y in matches]
                 got_years = True
                 if debug:
@@ -220,53 +237,51 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=25):
                 continue
             else:
                 if debug:
-                    print('SKIPPED LINE BEFORE YEARS CAPTURED:', line)
+                    print('SKIPPED LINE BEFORE YEARS CAPTURED:', label)
                 continue
 
-        label = line[0]
-
-        if end.match(line):
-                if debug:
-                    print(f'Final line detected and included: {line}')
-                end_collection = True
         elif end_collection:
             if debug:
-                print(f'Final line detected. Excluded: {line}')
+                print(f'Final line detected. Excluded: {label}')
             break
 
         new_line_item = LineItem(label)
 
         if len(line) > 1:
 
+            if end.match(label):
+                if debug:
+                    print(f'Final line detected and included: {label}')
+                end_collection = True
+
             vals = line[1:]
             if debug:
                 print(f'LINE ITEM DETECTED: {label}')
 
-            for year, col_coord in zip(years, col_coords):
-                for val, val_coord in vals:
-                    if val_coord in range(col_coord - val_x_thresh, col_coord + val_x_thresh):
-                        stripped_val = val.replace('$', '').replace('_', '').replace(',', '').replace('(', '-').replace(')', '')
-                        if detect_vals.match(stripped_val):
-                            if debug:
-                                print(f'NUMERIC VAL DETECTED: {val}')
-                            new_line_item.add_data(year, stripped_val)
-                        else:
-                            if debug:
-                                print(f'NUMERIC VAL NOT DETECTED. TREATING AS 0: {val}')
-                            new_line_item.add_data(year, 0)
+            for (val, val_coord), year, col_coord in zip(vals, years, col_coords):
+                if abs(val_coord - col_coord) <= val_x_thresh:
+                    if detect_vals.match(val):
+                        if debug:
+                            print(f'NUMERIC VAL DETECTED: {val}')
+                        stripped_val = int(val.replace('$', '').replace('_', '').replace(',', '').replace('(', '-').replace(')', ''))
+                        new_line_item.add_data(year, stripped_val)
                     else:
                         if debug:
-                            print('LINE FAILED COORD CHECK: {label}')
-                        continue
-                if len(vals) < len(years) and year not in new_line_item.get_data().keys():
-                    if debug:
-                        print(f'NO VAL DETECTED. TREATING AS 0: {val}')
+                            print(f'NUMERIC VAL NOT DETECTED. TREATING AS 0: {val}')
                         new_line_item.add_data(year, 0)
-                    if end_collection:
+                else:
+                    if debug:
+                        print(f'LINE FAILED COORD CHECK: {label}')
+                    continue
+
+                if len(vals) < len(years) and year not in new_line_item.get_data().keys():
                         if debug:
-                            print(f'Final line detected. Excluded: {line}')
-                        break
-            
+                            print(f'NO VAL DETECTED. TREATING AS 0: {val}')
+                            new_line_item.add_data(year, 0)
+                        if end_collection:
+                            if debug:
+                                print(f'Final line detected. Excluded: {line}')
+                            break
             
             new_fs.add_line_item(new_line_item)
 
@@ -282,13 +297,22 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=25):
 
     return new_fs
 
+def export_fs(fs, filename=f"financial_statement.csv"):
 
+    all_years = sorted(
+        {year for item in fs.lines for year in item.data.keys()}
+    )
 
-                
+    with open(filename, "w", newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(["Label"] + all_years)
 
-
-
-
+        for item in fs.lines:
+            row = [item.name]
+            for year in all_years:
+                value = item.data.get(year, "")
+                row.append(value)
+            writer.writerow(row)
 
 
 def debug_output(data, processed_img, verbose=False):
@@ -332,11 +356,11 @@ class FinancialStatement:
         return "\n".join(str(line) for line in self.lines)
 
 processed_img = remove_horizontal_lines(larger)[0]
-ocr_output, _ = get_data(False)
+ocr_output, _ = get_data()
 #for bbox, line, _ in ocr_output:
  #   print(bbox, line) 
 col_coords, lines = preprocess_text(ocr_output, True)
-print(f'===COL COORDS=== {col_coords}')
-print()
-print(f'===Lines=== {lines}')
-#debug_output(ocr_output, processed_img)
+print(f'===LINES===\n: {lines}')
+completed = build_fs(col_coords, lines, True, 25)
+export_fs(completed)
+debug_output(ocr_output, processed_img)
