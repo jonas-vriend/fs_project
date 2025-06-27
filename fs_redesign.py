@@ -9,6 +9,10 @@ from collections import Counter
 from pdf2image import convert_from_path
 from PIL import Image, ImageOps 
 
+## GLOBAL VARIABLES ##
+
+detect_vals = re.compile(r'^\(?-?\$?\d{1,3}(?:,\d{3})*(?:\.\d+)?\)?$')
+
 # Get the input PDF path
 pdf_path = os.path.join("Financials", "BS", "Apple_bs_21.pdf")
 
@@ -101,19 +105,12 @@ def get_y_bounds(list_of_coords, num_years):
 
     col_coords = [np.median(col) for col in cols]
     return col_coords
-
-def glue_malformed(malformed, lines, debug=False):
-    for data in malformed:
-        text, y = data
-        #for line in lines:
-           # if 
         
 
-def build_fs(ocr_output, debug=False, y_thresh=100, val_x_thresh=25): # usually y_thresh 50
+def preprocess_text(ocr_output, debug=False, y_thresh=50):
     num_vals = []
     all_val_coords = []
     lines = []
-    detect_vals = re.compile(r'^\(?-?\$?\d{1,3}(?:,\d{3})*(?:\.\d+)?\)?$')
 
     start_bbox, first_line, _ = ocr_output[0]
     if debug:
@@ -163,6 +160,137 @@ def build_fs(ocr_output, debug=False, y_thresh=100, val_x_thresh=25): # usually 
     col_coords = get_y_bounds(all_val_coords, num_years)
     return (col_coords, lines)
 
+def what_fs(cleaned):
+    BALANCE_SHEET_TERMS = ['balance sheet', 'asset', 'assets', 'liability',
+                            'liabilities', 'inventory', 'inventories', 'property', 'plant', 'equipment',
+                            'accounts payable', 'deferred revenue', "shareholder's equity", 'common stock', 'accounts receivable',
+                            'additional paid-in capital', 'accumulated other comprehensive income', 'cash and cash equivalents', 'retained earnings']
+    
+    INCOME_STATEMENT_TERMS = ['income statement', 'revenue', 'sales', 'gross margin', 'operating expenses', 'cost of goods sold',
+                              'research and development', 'net income', 'income', 'depreciation', 'tax', 'taxes']
+    
+    bs_score = 0
+    is_score = 0
+
+    for line, _ in cleaned:
+        for b_term in BALANCE_SHEET_TERMS:
+            if b_term in line:
+                bs_score += 1
+        
+        for i_term in INCOME_STATEMENT_TERMS:
+            if i_term in line:
+                is_score += 1
+    
+    if bs_score > is_score and bs_score >= 5:
+        print(f'BS identified. BS score: {bs_score} IS score: {is_score}')
+        return 'BALANCE_SHEET'
+    elif is_score > bs_score and is_score >= 5:
+        print(f'IS identified. IS score: {is_score} BS score: {bs_score}')
+        return 'INCOME_STATEMENT'
+    else:
+        raise ValueError('Could not recognize document')
+
+
+def get_end(result):
+    if result == 'BALANCE_SHEET':
+        return re.compile(r'(?i)total.*liabilit(?:y|ies).*equity.*\d+')
+    else:
+        return re.compile(r'(?i)^.*net\s+\(?income\)?(?:\s+\(loss\))?.*')
+
+
+def build_fs(col_coords, lines, debug=False, val_x_thresh=25):
+    extract_date = re.compile(r'^(?:\D*?(?:19|20)\d{2}){2,}\D*$')
+    year_pattern = re.compile(r'(?:19|20)\d{2}')
+
+    got_years = False #  flag that tells computer to skip useless lines until dates found
+    end_collection = False #  flag that tells computer to exclude useless lines after final line item found
+    new_fs = FinancialStatement()
+    fs_type = what_fs(lines)
+    end = get_end(fs_type) #  regex computer uses to determine end
+
+    for line in lines:
+        if not got_years:
+            found_years = extract_date.search(line)
+            if found_years:
+                matches = year_pattern.findall(line)
+                years = [int(y) for y in matches]
+                got_years = True
+                if debug:
+                    print('CAPTURED YEARS:', years)
+                continue
+            else:
+                if debug:
+                    print('SKIPPED LINE BEFORE YEARS CAPTURED:', line)
+                continue
+
+        label = line[0]
+
+        if end.match(line):
+                if debug:
+                    print(f'Final line detected and included: {line}')
+                end_collection = True
+        elif end_collection:
+            if debug:
+                print(f'Final line detected. Excluded: {line}')
+            break
+
+        new_line_item = LineItem(label)
+
+        if len(line) > 1:
+
+            vals = line[1:]
+            if debug:
+                print(f'LINE ITEM DETECTED: {label}')
+
+            for year, col_coord in zip(years, col_coords):
+                for val, val_coord in vals:
+                    if val_coord in range(col_coord - val_x_thresh, col_coord + val_x_thresh):
+                        stripped_val = val.replace('$', '').replace('_', '').replace(',', '').replace('(', '-').replace(')', '')
+                        if detect_vals.match(stripped_val):
+                            if debug:
+                                print(f'NUMERIC VAL DETECTED: {val}')
+                            new_line_item.add_data(year, stripped_val)
+                        else:
+                            if debug:
+                                print(f'NUMERIC VAL NOT DETECTED. TREATING AS 0: {val}')
+                            new_line_item.add_data(year, 0)
+                    else:
+                        if debug:
+                            print('LINE FAILED COORD CHECK: {label}')
+                        continue
+                if len(vals) < len(years) and year not in new_line_item.get_data().keys():
+                    if debug:
+                        print(f'NO VAL DETECTED. TREATING AS 0: {val}')
+                        new_line_item.add_data(year, 0)
+                    if end_collection:
+                        if debug:
+                            print(f'Final line detected. Excluded: {line}')
+                        break
+            
+            
+            new_fs.add_line_item(new_line_item)
+
+        else:
+            if end_collection:
+                if debug:
+                    print(f'END REACHED. EXCLUDED: {label}')
+                break
+
+            if debug:
+                print(f'HEADING DETECTED: {label}')
+            new_fs.add_line_item(new_line_item)
+
+    return new_fs
+
+
+
+                
+
+
+
+
+
+
 def debug_output(data, processed_img, verbose=False):
     img = np.array(processed_img)
 
@@ -185,6 +313,9 @@ class LineItem:
         assert isinstance(value, (int, float))
         self.data[year] = value
 
+    def get_data(self):
+        return self.data
+
     def __str__(self):
         data_pairs = [(year, self.data[year]) for year in sorted(self.data.keys())]
         return f'Line item: {self.name} | Values: {data_pairs}'
@@ -201,10 +332,10 @@ class FinancialStatement:
         return "\n".join(str(line) for line in self.lines)
 
 processed_img = remove_horizontal_lines(larger)[0]
-ocr_output, _ = get_data()
+ocr_output, _ = get_data(False)
 #for bbox, line, _ in ocr_output:
  #   print(bbox, line) 
-col_coords, lines = build_fs(ocr_output, True)
+col_coords, lines = preprocess_text(ocr_output, True)
 print(f'===COL COORDS=== {col_coords}')
 print()
 print(f'===Lines=== {lines}')
