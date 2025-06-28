@@ -14,7 +14,7 @@ from PIL import Image, ImageOps
 detect_vals = re.compile(r'^\(?-?\$?\d{1,3}(?:,\d{3})*(?:\.\d+)?\)?$')
 
 # Get the input PDF path
-pdf_path = os.path.join("Financials", "BS", "Apple_bs_21.pdf")
+pdf_path = os.path.join("Financials", "BS", "Amazon_bs_20.pdf")
 
 # Convert first page of PDF to image
 images = convert_from_path(pdf_path, dpi=300)
@@ -176,7 +176,7 @@ def preprocess_text(ocr_output, debug=False, y_thresh=30):
         print(f'Captured col_coords: {col_coords}')
     return col_coords, lines
 
-
+    
 def what_fs(cleaned):
     BALANCE_SHEET_TERMS = ['balance sheet', 'asset', 'assets', 'liability',
                             'liabilities', 'inventory', 'inventories', 'property', 'plant', 'equipment',
@@ -285,6 +285,7 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
                     if debug:
                         print(f'REJECTED: {val} AT X = {val_coord}, TOO FAR FROM COL {col_coords[closest_idx]}')
 
+
             # Fill missing years with 0
             for idx, year in enumerate(years):
                 value = assigned_vals[idx] if assigned_vals[idx] is not None else 0
@@ -326,7 +327,6 @@ def export_fs(fs, filename="financial_statement.csv"):
             writer.writerow(row)
 
 
-
 def debug_output(data, processed_img, col_coords, val_x_thresh=75, verbose=False):
     img = np.array(processed_img)
 
@@ -353,6 +353,37 @@ def debug_output(data, processed_img, col_coords, val_x_thresh=75, verbose=False
 
     cv2.imwrite(os.path.join("Debug", "debug_overlay.png"), img)
 
+class RawData:
+    def __init__(self):
+        self.text = None
+        self.text_x_coords = (None, None)
+        self.vals = []
+    
+    def get_text(self):
+        return self.text
+    
+    def get_x_coord(self):
+        return self.text_x_coord
+    
+    def get_vals(self):
+        return self.vals
+    
+    def add_text(self, text):
+        assert isinstance(text, str)
+        self.text = text
+
+    def add_x_coord(self, coord1, coord2):
+        assert isinstance(coord1, (int, float))
+        assert isinstance(coord2, (int, float))
+        self.text_x_coord = (coord1, coord2)
+    
+    def add_vals(self, val, coord):
+        assert isinstance(val, (int, float))
+        self.vals.append((val,coord))
+
+    def __str__(self):
+        return f'TEXT: {self.text} TEXT COORD: {self.text_x_coord}\n VALS: {self.vals}'
+
 
 class LineItem:
     def __init__(self, name):
@@ -371,7 +402,8 @@ class LineItem:
     def __str__(self):
         data_pairs = [(year, self.data[year]) for year in sorted(self.data.keys())]
         return f'Line item: {self.name} | Values: {data_pairs}'
-    
+
+
 class FinancialStatement:
     def __init__(self):
         self.lines = []
@@ -383,8 +415,9 @@ class FinancialStatement:
     def __str__(self):
         return "\n".join(str(line) for line in self.lines)
 
+
 processed_img = remove_horizontal_lines(larger)[0]
-ocr_output, _ = get_data(False)
+ocr_output, _ = get_data()
 #for bbox, line, _ in ocr_output:
  #   print(bbox, line) 
 col_coords, lines = preprocess_text(ocr_output, True)
