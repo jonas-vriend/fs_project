@@ -14,7 +14,7 @@ from PIL import Image, ImageOps
 detect_vals = re.compile(r'^\(?-?\$?\d{1,3}(?:,\d{3})*(?:\.\d+)?\)?$')
 
 # Get the input PDF path
-pdf_path = os.path.join("Financials", "IS", "Amazon_is_20.pdf")
+pdf_path = os.path.join("Financials", "BS", "Apple_bs_21.pdf")
 
 # Convert first page of PDF to image
 images = convert_from_path(pdf_path, dpi=300)
@@ -82,7 +82,7 @@ def get_data(cache=True):
         reader = easyocr.Reader(['en'])
         processed, debug_path = remove_horizontal_lines(larger)
         print(f"Debug image saved to: {debug_path}")
-        results = reader.readtext(np.array(processed), width_ths=0.5)
+        results = reader.readtext(np.array(processed), width_ths=0.3)
         with open(cache_file, "wb") as f:
             pickle.dump(results, f)
     
@@ -107,7 +107,7 @@ def get_y_bounds(list_of_coords, num_years):
     return col_coords
         
 
-def preprocess_text(ocr_output, debug=False, y_thresh=50):
+def preprocess_text(ocr_output, debug=False, y_thresh=30):
     num_vals = []
     all_val_coords = []
     lines = []
@@ -129,7 +129,7 @@ def preprocess_text(ocr_output, debug=False, y_thresh=50):
                 line_val_coords.append(x2)
                 start_line.append((line, x2))
             elif line.strip() == '$' or line.strip() == 'S':
-                continue  # Ignore isolated $
+                continue  # Ignore isolated $ 
             else:
                 if debug:
                     print(f'DETECTED LABEL FRAGMENT: {line}')
@@ -220,14 +220,15 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
     extract_date = re.compile(r'^(?:\D*?(?:19|20)\d{2}){2,}\D*$')
     year_pattern = re.compile(r'(?:19|20)\d{2}')
 
-    got_years = False #  flag that tells computer to skip useless lines until dates found
-    end_collection = False #  flag that tells computer to exclude useless lines after final line item found
+    got_years = False
+    end_collection = False
     new_fs = FinancialStatement()
     fs_type = what_fs(lines)
-    end = get_end(fs_type) #  regex computer uses to determine end
+    end = get_end(fs_type)
 
     for line in lines:
         label = line[0]
+
         if not got_years:
             found_years = extract_date.search(label)
             if found_years:
@@ -242,7 +243,7 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
                     print('SKIPPED LINE BEFORE YEARS CAPTURED:', label)
                 continue
 
-        elif end_collection:
+        elif end_collection and not end.match(label):
             if debug:
                 print(f'Final line detected. Excluded: {label}')
             break
@@ -250,7 +251,6 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
         new_line_item = LineItem(label)
 
         if len(line) > 1:
-
             if end.match(label):
                 if debug:
                     print(f'Final line detected and included: {label}')
@@ -260,31 +260,36 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
             if debug:
                 print(f'LINE ITEM DETECTED: {label}')
 
-            for (val, val_coord), year, col_coord in zip(vals, years, col_coords):
-                if abs(val_coord - col_coord) <= val_x_thresh:
+            assigned_vals = [None] * len(col_coords)
+
+            for val, val_coord in vals:
+                # Find closest column index
+                distances = [abs(val_coord - col_x) for col_x in col_coords]
+                closest_idx = np.argmin(distances)
+
+                if distances[closest_idx] <= val_x_thresh:
                     if detect_vals.match(val):
-                        if debug:
-                            print(f'NUMERIC VAL DETECTED: {val}')
-                        stripped_val = int(val.replace('$', '').replace('_', '').replace(',', '').replace('(', '-').replace(')', ''))
-                        new_line_item.add_data(year, stripped_val)
+                        cleaned = val.replace('$', '').replace(',', '').replace('_', '').replace('(', '-').replace(')', '')
+                        try:
+                            val_num = int(cleaned)
+                        except ValueError:
+                            val_num = 0
+                            if debug:
+                                print(f'COULD NOT PARSE VAL. TREATING AS 0: {val}')
                     else:
+                        val_num = 0
                         if debug:
-                            print(f'NUMERIC VAL NOT DETECTED. TREATING AS 0: {val}')
-                        new_line_item.add_data(year, 0)
+                            print(f'VAL NOT RECOGNIZED. TREATING AS 0: {val}')
+                    assigned_vals[closest_idx] = val_num
                 else:
                     if debug:
-                        print(f'VAL FAILED COORD CHECK: {val} VAL COORD: {val_coord} COL COORD: {col_coord}')
-                    continue
+                        print(f'REJECTED: {val} AT X = {val_coord}, TOO FAR FROM COL {col_coords[closest_idx]}')
 
-                if len(vals) < len(years) and year not in new_line_item.get_data().keys():
-                        if debug:
-                            print(f'NO VAL DETECTED. TREATING AS 0: {val}')
-                            new_line_item.add_data(year, 0)
-                        if end_collection:
-                            if debug:
-                                print(f'Final line detected. Excluded: {line}')
-                            break
-            
+            # Fill missing years with 0
+            for idx, year in enumerate(years):
+                value = assigned_vals[idx] if assigned_vals[idx] is not None else 0
+                new_line_item.add_data(year, value)
+
             new_fs.add_line_item(new_line_item)
 
         else:
@@ -299,11 +304,15 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
 
     return new_fs
 
-def export_fs(fs, filename=f"financial_statement.csv"):
 
-    all_years = sorted(
-        {year for item in fs.lines for year in item.data.keys()}
-    )
+def export_fs(fs, filename="financial_statement.csv"):
+    all_years = []
+    seen = set()
+    for item in fs.lines:
+        for year in item.data.keys():
+            if year not in seen:
+                seen.add(year)
+                all_years.append(year)
 
     with open(filename, "w", newline='') as f:
         writer = csv.writer(f)
@@ -315,6 +324,7 @@ def export_fs(fs, filename=f"financial_statement.csv"):
                 value = item.data.get(year, "")
                 row.append(value)
             writer.writerow(row)
+
 
 
 def debug_output(data, processed_img, col_coords, val_x_thresh=75, verbose=False):
