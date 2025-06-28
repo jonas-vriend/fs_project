@@ -12,11 +12,18 @@
 ## BS Problems Im aware of:
 - Apple 2015: OCR doesnt catch the 0 in current portion of term debt.
 - Apple 2017: Minor misspellings from OCR but fine otherwise. 
-- Apple 2021: OCR adds extra 3 in other current assets
+- Apple 2021: Looks great
 - Apple 2023: Looks great
 - Apple 2024: OCR doesnt catch 7 in AOCI
 
 
 ## IS Problems Im aware of:
-- Walmart 24: multiple lines that say consolidated net income. - FIXED
+- Walmart 24: multiple lines that say consolidated net income. 
 - Walmart 24: values recorded as -- for 0 break regex
+
+## Redesign:
+- consider altering OCR function to allow for more lenient threshold for joining lines.
+
+TO DO TOMORROW
+- At some point probabky need to store text as dict and include x coords for indentation / formatting 
+- Make found date logic more flexible so that it adds junk and doesnt break if the date isnt found but deletes it if the date is found. 
