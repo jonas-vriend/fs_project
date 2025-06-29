@@ -14,7 +14,7 @@ from PIL import Image, ImageOps
 detect_vals = re.compile(r'^\(?-?\$?\d{1,3}(?:,\d{3})*(?:\.\d+)?\)?$')
 
 # Get the input PDF path
-pdf_path = os.path.join("Financials", "BS", "Amazon_bs_20.pdf")
+pdf_path = os.path.join("Financials", "BS", "years_missing_bs.pdf")
 
 # Convert first page of PDF to image
 images = convert_from_path(pdf_path, dpi=300)
@@ -237,22 +237,18 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
     new_fs = FinancialStatement()
     fs_type = what_fs(lines)
     end = get_end(fs_type)
+    years = ['Year ' + str(num + 1) for num in range(len(col_coords))] # Default years in case yeaars not found
 
     for line in lines:
         label = line.get_text()
 
-        if not got_years:
-            found_years = extract_date.search(label)
-            if found_years:
+        if not got_years and extract_date.search(label):
                 matches = year_pattern.findall(label)
                 years = [int(y) for y in matches]
                 got_years = True
+                new_fs = FinancialStatement()
                 if debug:
                     print('CAPTURED YEARS:', years)
-                continue
-            else:
-                if debug:
-                    print('SKIPPED LINE BEFORE YEARS CAPTURED:', label)
                 continue
 
         elif end_collection and not end.match(label):
@@ -327,7 +323,8 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
                 print(f'HEADING DETECTED: {label}')
             new_line_item.add_label(label)
             new_fs.add_line_item(new_line_item)
-
+    if not got_years and debug:
+        print('WARNING COULD NOT FIND YEARS.')
     return new_fs
 
 
@@ -418,7 +415,6 @@ class LineItem:
         self.label = label
 
     def add_data(self, year, value=None):
-        assert isinstance(year, int)
         assert isinstance(value, (int, float))
         self.data[year] = value
 
