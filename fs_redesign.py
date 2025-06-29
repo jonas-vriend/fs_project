@@ -84,7 +84,7 @@ def get_data(cache=True):
         reader = easyocr.Reader(['en'])
         processed, debug_path = remove_horizontal_lines(larger)
         print(f"Debug image saved to: {debug_path}")
-        results = reader.readtext(np.array(processed), width_ths=0.3)
+        results = reader.readtext(np.array(processed), width_ths=0.5)
         with open(cache_file, "wb") as f:
             pickle.dump(results, f)
     
@@ -128,17 +128,21 @@ def preprocess_text(ocr_output, debug=False, y_thresh=30):
         x1, x2, y = get_coords(bbox)
 
         if y in range(start_y - y_thresh, start_y + y_thresh):
+
             if detect_vals.match(text):
                 if debug:
                     print(f'DETECTED VAL: {text}')
                 line_val_coords.append(x2)
                 new_line.add_val(text, x2)
-            elif text.strip() == '$' or text.strip() == 'S':
-                continue  # Ignore isolated $ 
+
             else:
-                if debug:
-                    print(f'DETECTED LABEL FRAGMENT: {text}')
-                start_line += ' ' + text
+                if text.strip() in {'$', 'S'}:
+                    continue  # Ignore isolated $ or S
+                else:
+                    if debug:
+                        print(f'DETECTED LABEL FRAGMENT: {text}')
+                    start_line += ' ' + text
+
         else:
             # Finalize previous line
             new_line.add_text(start_line)
@@ -293,7 +297,13 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
                 else:
                     if debug:
                         print(f'REJECTED: {val} AT X = {val_coord}, TOO FAR FROM COL {col_coords[closest_idx]}')
-                    label = label + ' ' +  str(val) 
+                    _, lab_x2 = line.get_x_coords()
+                    if abs(val_coord - lab_x2) <= 600:
+                        label = label + ' ' +  str(val) 
+                        if debug:
+                            print(f'ADDING {val} TO END OF LABEL. LABEL NOW: {label}')
+                    elif debug:
+                        print(f'REJECTED {val} AT X = {val_coord}, TOO FAR FROM LABEL {lab_x2}')
                     skip_erroneous_val = True
 
             new_line_item.add_label(label)
@@ -434,10 +444,7 @@ class FinancialStatement:
 
 processed_img = remove_horizontal_lines(larger)[0]
 ocr_output, _ = get_data()
-#for bbox, line, _ in ocr_output:
- #   print(bbox, line) 
 col_coords, lines = preprocess_text(ocr_output, True)
-print(f'===LINES===\n: {lines}')
+debug_output(ocr_output, processed_img, col_coords)
 completed = build_fs(col_coords, lines, True)
 export_fs(completed)
-debug_output(ocr_output, processed_img, col_coords)
