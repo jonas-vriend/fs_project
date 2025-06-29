@@ -32,6 +32,7 @@ larger = higher_clarity.resize(
 image_filename = os.path.splitext(os.path.basename(pdf_path))[0]
 cache_file = os.path.join("Cache", f"ocr_cache_{image_filename}.pkl")
 
+
 def remove_horizontal_lines(pil_image):
     # Convert PIL to OpenCV grayscale
     img = np.array(pil_image)
@@ -70,6 +71,7 @@ def remove_horizontal_lines(pil_image):
 
     return final_image, debug_line_path
 
+
 def get_data(cache=True):
 
     if cache and os.path.exists(cache_file):
@@ -88,11 +90,13 @@ def get_data(cache=True):
     
     return results, processed
 
+
 def get_coords(bbox):
     tl, tr, _, _ = bbox
     x1, y = tl
     x2, _ = tr
     return (x1, x2, y)
+
 
 def get_y_bounds(list_of_coords, num_years):
     cols = [[] for _ in range(num_years)]
@@ -105,66 +109,70 @@ def get_y_bounds(list_of_coords, num_years):
 
     col_coords = [np.median(col) for col in cols]
     return col_coords
-        
+
 
 def preprocess_text(ocr_output, debug=False, y_thresh=30):
-    num_vals = []
-    all_val_coords = []
-    lines = []
+    num_vals = [] # stores number of vals to determine how many columns to expect
+    all_val_coords = [] # stores val coordinates to determine where vals should be on page
+    output = [] # what is returned
+    line_val_coords = []  # Holds x2 coords of values on current line to get val boundaries
 
+    #Starts very first line for loop to compare to
     start_bbox, first_line, _ = ocr_output[0]
-    _, _, start_y = get_coords(start_bbox)
-    
-    label_parts = []  # Holds segments of the label on current line
-    line_val_coords = []  # Holds x2 coords of values on current line
-    start_line = []  # Holds (val, x2) pairs
+    x1, x2, start_y = get_coords(start_bbox)
+    current_x1 = x1
+    start_line = first_line
 
-    for bbox, line, _ in ocr_output[1:]:
+    new_line = RawData()
+    for bbox, text, _ in ocr_output[1:]:
         x1, x2, y = get_coords(bbox)
 
         if y in range(start_y - y_thresh, start_y + y_thresh):
-            if detect_vals.match(line):
+            if detect_vals.match(text):
                 if debug:
-                    print(f'DETECTED VAL: {line}')
+                    print(f'DETECTED VAL: {text}')
                 line_val_coords.append(x2)
-                start_line.append((line, x2))
-            elif line.strip() == '$' or line.strip() == 'S':
+                new_line.add_val(text, x2)
+            elif text.strip() == '$' or text.strip() == 'S':
                 continue  # Ignore isolated $ 
             else:
                 if debug:
-                    print(f'DETECTED LABEL FRAGMENT: {line}')
-                label_parts.append(line)
+                    print(f'DETECTED LABEL FRAGMENT: {text}')
+                start_line += ' ' + text
         else:
             # Finalize previous line
-            full_label = ' '.join(label_parts).strip()
-            lines.append([full_label] + start_line)
+            new_line.add_text(start_line)
+            new_line.add_x_coords(current_x1, x2)
             if debug:
-                print(f'APPENDING COMPLETED LINE: {[full_label] + start_line}')
-            if line_val_coords:
+                print(f'COMPLETED LINE: {start_line}, VALS: {new_line.get_vals()}')
+            if line_val_coords: # good dont need to change
                 all_val_coords.append(line_val_coords)
                 num_vals.append(len(line_val_coords))
+            output.append(new_line)
 
             # Reset everything for new line
+            new_line = RawData()
             start_y = y
             line_val_coords = []
-            start_line = []
-            label_parts = []
+            current_x1 = x1
 
-            if detect_vals.match(line):
+            # First fragment of new line
+            if detect_vals.match(text):
                 line_val_coords.append(x2)
-                start_line.append((line, x2))
-            elif line.strip() != '$':
-                label_parts = [line]
+                new_line.add_val(text, x2)
+            elif text.strip() != '$':
+                start_line = text
 
     # Handle last line
-    if label_parts or start_line:
-        full_label = ' '.join(label_parts).strip()
-        lines.append([full_label] + start_line)
+    if start_line:
+        new_line.add_text(start_line)
+        new_line.add_x_coords(current_x1, x2)
         if debug:
-            print(f'APPENDING FINAL LINE: {[full_label] + start_line}')
+            print(f'ADDING FINAL LINE: {start_line}')
         if line_val_coords:
             all_val_coords.append(line_val_coords)
             num_vals.append(len(line_val_coords))
+    output.append(new_line)
 
     num_years = Counter(num_vals).most_common(1)[0][0]
     if debug:
@@ -174,7 +182,7 @@ def preprocess_text(ocr_output, debug=False, y_thresh=30):
     col_coords = get_y_bounds(all_val_coords, num_years)
     if debug:
         print(f'Captured col_coords: {col_coords}')
-    return col_coords, lines
+    return col_coords, output
 
     
 def what_fs(cleaned):
@@ -190,7 +198,7 @@ def what_fs(cleaned):
     is_score = 0
 
     for line in cleaned:
-        text = line[0]
+        text = line.get_text()
         for b_term in BALANCE_SHEET_TERMS:
             if b_term in text.lower():
                 bs_score += 1
@@ -227,7 +235,7 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
     end = get_end(fs_type)
 
     for line in lines:
-        label = line[0]
+        label = line.get_text()
 
         if not got_years:
             found_years = extract_date.search(label)
@@ -248,20 +256,21 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
                 print(f'Final line detected. Excluded: {label}')
             break
 
-        new_line_item = LineItem(label)
+        new_line_item = LineItem()
 
-        if len(line) > 1:
+        vals = line.get_vals()
+        if not line.get_vals() == []:
             if end.match(label):
                 if debug:
                     print(f'Final line detected and included: {label}')
                 end_collection = True
 
-            vals = line[1:]
             if debug:
                 print(f'LINE ITEM DETECTED: {label}')
 
             assigned_vals = [None] * len(col_coords)
 
+            skip_erroneous_val = False
             for val, val_coord in vals:
                 # Find closest column index
                 distances = [abs(val_coord - col_x) for col_x in col_coords]
@@ -284,14 +293,19 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
                 else:
                     if debug:
                         print(f'REJECTED: {val} AT X = {val_coord}, TOO FAR FROM COL {col_coords[closest_idx]}')
+                    label = label + ' ' +  str(val) 
+                    skip_erroneous_val = True
 
+            new_line_item.add_label(label)
+            new_fs.add_line_item(new_line_item)
+    
+            if skip_erroneous_val: # Need to add an additional check shouldnt just concatenate without checking coords first. 
+                continue
 
             # Fill missing years with 0
             for idx, year in enumerate(years):
                 value = assigned_vals[idx] if assigned_vals[idx] is not None else 0
                 new_line_item.add_data(year, value)
-
-            new_fs.add_line_item(new_line_item)
 
         else:
             if end_collection:
@@ -301,6 +315,7 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
 
             if debug:
                 print(f'HEADING DETECTED: {label}')
+            new_line_item.add_label(label)
             new_fs.add_line_item(new_line_item)
 
     return new_fs
@@ -320,7 +335,7 @@ def export_fs(fs, filename="financial_statement.csv"):
         writer.writerow(["Label"] + all_years)
 
         for item in fs.lines:
-            row = [item.name]
+            row = [item.label]
             for year in all_years:
                 value = item.data.get(year, "")
                 row.append(value)
@@ -353,43 +368,44 @@ def debug_output(data, processed_img, col_coords, val_x_thresh=75, verbose=False
 
     cv2.imwrite(os.path.join("Debug", "debug_overlay.png"), img)
 
+
 class RawData:
     def __init__(self):
         self.text = None
         self.text_x_coords = (None, None)
-        self.vals = []
-    
+        self.vals = []  # List of (val, x_coord) pairs
+
     def get_text(self):
         return self.text
-    
-    def get_x_coord(self):
-        return self.text_x_coord
-    
+
+    def get_x_coords(self):
+        return self.text_x_coords
+
     def get_vals(self):
         return self.vals
-    
+
     def add_text(self, text):
-        assert isinstance(text, str)
+        assert isinstance(text, str), "Text must be a string"
         self.text = text
 
-    def add_x_coord(self, coord1, coord2):
-        assert isinstance(coord1, (int, float))
-        assert isinstance(coord2, (int, float))
-        self.text_x_coord = (coord1, coord2)
-    
-    def add_vals(self, val, coord):
-        assert isinstance(val, (int, float))
-        self.vals.append((val,coord))
+    def add_x_coords(self, coord1, coord2):
+        self.text_x_coords = (float(coord1), float(coord2))
+
+    def add_val(self, val, coord):
+        self.vals.append((val, float(coord)))
 
     def __str__(self):
-        return f'TEXT: {self.text} TEXT COORD: {self.text_x_coord}\n VALS: {self.vals}'
+        return f"TEXT: {self.text} | COORDS: {self.text_x_coords} | VALS: {self.vals}"
 
 
 class LineItem:
-    def __init__(self, name):
-        assert isinstance(name, str)
-        self.name = name
+    def __init__(self):
+        self.label = None
         self.data = {}
+
+    def add_label(self, label):
+        assert isinstance(label, str)
+        self.label = label
 
     def add_data(self, year, value=None):
         assert isinstance(year, int)
