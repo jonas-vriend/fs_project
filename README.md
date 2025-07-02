@@ -18,12 +18,11 @@
 ## BS Problems Im aware of:
 - Apple 2015: OCR doesnt catch the 0 in current portion of term debt.
 - Apple 2017: Looks good
-- Apple 2021: OCR splits the 26 off of FYE line
+- Apple 2021: OCR splits the 26 off of FYE line - not catastrophic since this line isnt used but can forsee this happening to improtant values so want to avoid this happening
 - Apple 2023: Looks good
 - Apple 2024: Looks good
 - UHG 2024: single digit value 9 not caught - really bad
 
 ## IS Problems Im aware of:
-- Walmart 24: multiple lines that say consolidated net income. 
-- Walmart 24: values recorded as -- for 0 break regex
+- Walmart 24: values recorded as -- for 0
 
