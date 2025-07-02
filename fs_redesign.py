@@ -9,36 +9,34 @@ from collections import Counter
 from pdf2image import convert_from_path
 from PIL import Image, ImageOps 
 
-## GLOBAL VARIABLES ##
+########################### GLOBAL VARIABLES ###################################
 
+pdf_path = os.path.join("Financials", "BS", "UHG_bs_24.pdf") # I  change this to test different statements
 detect_vals = re.compile(r'^\(?-?\$?\d{1,3}(?:,\d{3})*(?:\.\d+)?\)?$')
 
-# Get the input PDF path
-pdf_path = os.path.join("Financials", "BS", "years_missing_bs.pdf")
-
-# Convert first page of PDF to image
-images = convert_from_path(pdf_path, dpi=300)
-pdf_basename = os.path.splitext(os.path.basename(pdf_path))[0]
-
-higher_clarity = images[0].convert("L")
-
-higher_clarity = ImageOps.autocontrast(higher_clarity)
-
-scale_factor = 2  
-larger = higher_clarity.resize(
-    (higher_clarity.width * scale_factor, higher_clarity.height * scale_factor)
-)
-
-image_filename = os.path.splitext(os.path.basename(pdf_path))[0]
-cache_file = os.path.join("Cache", f"ocr_cache_{image_filename}.pkl")
+################################################################################
 
 
-def remove_horizontal_lines(pil_image):
+def preprocess_img():
+    """
+    Converts PDF to image, increases clarity, inverts to black background and white text to improve OCR performance, removes summing lines.
+    """
+    image = convert_from_path(pdf_path, dpi=300)
+
+    higher_clarity = image[0].convert("L")
+
+    higher_clarity = ImageOps.autocontrast(higher_clarity)
+
+    scale_factor = 2  
+    larger = higher_clarity.resize(
+        (higher_clarity.width * scale_factor, higher_clarity.height * scale_factor)
+    )
+
     # Convert PIL to OpenCV grayscale
-    img = np.array(pil_image)
+    img = np.array(larger)
 
     # Binarize image (invert for easier line detection)
-    _, binary = cv2.threshold(img, 160, 255, cv2.THRESH_BINARY_INV) # Very important: first number is threshold for whether something is treated as white or black which can delete entire sections if not careful
+    _, binary = cv2.threshold(img, 160, 255, cv2.THRESH_BINARY_INV) # Very important: first number arg is threshold for whether something is treated as white or black which can delete entire sections if not careful. Consider making this dynamic in the future
 
     # Detect horizontal lines
     horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (40, 1))
@@ -73,32 +71,42 @@ def remove_horizontal_lines(pil_image):
 
 
 def get_data(cache=True):
+    """
+    Loads or creates cached file
+    """
+    processed, debug_path = preprocess_img()
+    image_filename = os.path.splitext(os.path.basename(pdf_path))[0]
+    cache_file = os.path.join("Cache", f"ocr_cache_{image_filename}.pkl")
 
     if cache and os.path.exists(cache_file):
-        #os.remove(cache_file) 
         with open(cache_file, "rb") as f:
             results = pickle.load(f)
         print(f"Loaded OCR results from cache file: {cache_file}")
-        return results, processed_img
+        return results, processed
     else:
         reader = easyocr.Reader(['en'])
-        processed, debug_path = remove_horizontal_lines(larger)
         print(f"Debug image saved to: {debug_path}")
         results = reader.readtext(np.array(processed), width_ths=0.5)
         with open(cache_file, "wb") as f:
             pickle.dump(results, f)
-    
-    return results, processed
+        return results, processed
 
 
 def get_coords(bbox):
+    """
+    Unpacks bbox coordinates from OCR results 
+    """
     tl, tr, _, _ = bbox
     x1, y = tl
     x2, _ = tr
     return (x1, x2, y)
 
 
-def get_y_bounds(list_of_coords, num_years):
+def get_x_bounds(list_of_coords, num_years):
+    """
+    Takes list of coordinates of detected values in each row and takes median value
+    of the right bbox border x values for each column as a guide for where the values should be
+    """
     cols = [[] for _ in range(num_years)]
 
     for coords in list_of_coords:
@@ -112,6 +120,9 @@ def get_y_bounds(list_of_coords, num_years):
 
 
 def preprocess_text(ocr_output, debug=False, y_thresh=30):
+    """
+    Builds RawData objects for each line. Also determines psotion of line item values by calling get_x_bounds()
+    """
     num_vals = [] # stores number of vals to determine how many columns to expect
     all_val_coords = [] # stores val coordinates to determine where vals should be on page
     output = [] # what is returned
@@ -183,13 +194,19 @@ def preprocess_text(ocr_output, debug=False, y_thresh=30):
         print(f'NUM YEARS: {num_years}')
         print(f'VAL COORDS: {all_val_coords}')
     
-    col_coords = get_y_bounds(all_val_coords, num_years)
+    col_coords = get_x_bounds(all_val_coords, num_years)
     if debug:
         print(f'Captured col_coords: {col_coords}')
     return col_coords, output
 
     
 def what_fs(cleaned):
+    """
+    - Iterates through labels of RawData objects to determine the type of financial statement.
+    - Checks if expected words are in labels. 
+    - If a word is found, adds 1 to the score associated with that statement.
+    - The statement type will be determined based on whether more IS words or BS words are detected
+    """
     BALANCE_SHEET_TERMS = ['balance sheet', 'asset', 'assets', 'liability',
                             'liabilities', 'inventory', 'inventories', 'property', 'plant', 'equipment',
                             'accounts payable', 'deferred revenue', "shareholder's equity", 'common stock', 'accounts receivable',
@@ -222,6 +239,9 @@ def what_fs(cleaned):
 
 
 def get_end(result):
+    """
+    Determines Regex to use to identify end of statement
+    """
     if result == 'BALANCE_SHEET':
         return re.compile(r'(?i)total.*liabilit(?:y|ies).*equity')
     else:
@@ -229,6 +249,9 @@ def get_end(result):
 
 
 def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
+    """
+    Builds FinancialStatement object
+    """
     extract_date = re.compile(r'^(?:\D*?(?:19|20)\d{2}){2,}\D*$')
     year_pattern = re.compile(r'(?:19|20)\d{2}')
 
@@ -328,7 +351,10 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
     return new_fs
 
 
-def export_fs(fs, filename="financial_statement.csv"):
+def export_fs(fs, filename):
+    """
+    Exports FinancialStatement object to CSV
+    """
     all_years = []
     seen = set()
     for item in fs.lines:
@@ -349,11 +375,15 @@ def export_fs(fs, filename="financial_statement.csv"):
             writer.writerow(row)
 
 
-def debug_output(data, processed_img, col_coords, val_x_thresh=75, verbose=False):
+def debug_output(data, processed_img, col_coords, val_x_thresh=75, debug=False):
+    """
+    - Draws bboxes and red lines denoting value position on financial statement.
+    - Prints text captured in each bbox and its confidence value
+    """
     img = np.array(processed_img)
 
     for bbox, text, conf in data:
-        if verbose:
+        if debug:
             print(f"{text} (confidence: {conf:.2f})")
         bbox = [tuple(map(int, point)) for point in bbox]
         cv2.rectangle(img, bbox[0], bbox[2], (0, 255, 0), 2)
@@ -423,7 +453,7 @@ class LineItem:
 
     def __str__(self):
         data_pairs = [(year, self.data[year]) for year in sorted(self.data.keys())]
-        return f'Line item: {self.name} | Values: {data_pairs}'
+        return f'Line item: {self.label} | Values: {data_pairs}'
 
 
 class FinancialStatement:
@@ -438,9 +468,20 @@ class FinancialStatement:
         return "\n".join(str(line) for line in self.lines)
 
 
-processed_img = remove_horizontal_lines(larger)[0]
-ocr_output, _ = get_data()
-col_coords, lines = preprocess_text(ocr_output, True)
-debug_output(ocr_output, processed_img, col_coords)
-completed = build_fs(col_coords, lines, True)
-export_fs(completed)
+def main(debug=False, use_cache=False, export_filename="financial_statement.csv"):
+    """
+    Orchestrates the pipeline:
+    - Load/caches OCR
+    - Extracts structure and values
+    - Builds financial statement object
+    - Exports as CSV
+    """
+    ocr_output, processed_img = get_data(cache=use_cache)
+    col_coords, lines = preprocess_text(ocr_output, debug)
+    debug_output(ocr_output, processed_img, col_coords)
+    completed = build_fs(col_coords, lines, debug)
+    export_fs(completed, export_filename)
+
+
+if __name__ == "__main__":
+    main(debug=True, use_cache=False)
