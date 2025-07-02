@@ -1,29 +1,29 @@
 # To do list:
-- Need to test current code against many BS and IS from several companies to identify weaknesses in regex and ocr
-- OPTIONAL - Threshold to binarize image set at 160. Worked so far but could cause issues. Alternative is dynamic setting, but in texting led to a ton of artifacts. 
-- Play with other OCRs and see if accuracy improves.
+## TOP PRIORITIES:
+- OCR fails to detect single charater values (See UHG BS 24). Also can split lines that shouldnt be split if it thinks they are crooked. 
+    - Potential fixes: maybe preprocessing to dilate cjharacters so OCR can detect them, download easyocr package and tweak tolerances so splitting does not occur, get a better (hopefully free) ocr
+- Track $ signs since they are actually useful in separating the sections of A and L&SE
+- Need to handle tricky _ 0s. IDEA - if the detect_lines finds it, and its within the appropriate x thresholds, and the line item it matches up with has exmpty values, and there isnt a value dorectly above it within a certain threhold then it can be incldued. 
+- logic that uses y pos to defend against values being split by OCR
+- add indentations
 - Need to be able to handle several docs especially overlapping years.
-- Defensive programming that identifies likely haluccinations, maintains integrity of line item values, and highlights suspect cells in final output
-- clean up functions: build_bs should be renamed to build_fs and split into multiple functions. add comments and docstrings where necessary
+## REST:
+- OPTIONAL - Threshold to binarize image set at 160. Worked so far but could cause issues. Alternative is dynamic setting, but in testing led to a ton of artifacts. 
+- hook this up to excel and format it with openpyxl
+- list of malformed lines that are highlighted in final excel output
 - At some point HTML frontend 
-- Apple IS doesnt work rn because of different cuts that repeat years and current class construction is inflexible. If issue persists, may need to change attribute from dictionary to something else
+- Use some sort of spell check autocorrect on labels to handle OCR hallcuinations - obv would prefer to just have better ocr
 - OPTIONAL: Add FYE Line
 
 ## BS Problems Im aware of:
 - Apple 2015: OCR doesnt catch the 0 in current portion of term debt.
-- Apple 2017: Minor misspellings from OCR but fine otherwise. 
-- Apple 2021: Looks great
-- Apple 2023: Looks great
-- Apple 2024: OCR doesnt catch 7 in AOCI
-
+- Apple 2017: Looks good
+- Apple 2021: OCR splits the 26 off of FYE line
+- Apple 2023: Looks good
+- Apple 2024: Looks good
+- UHG 2024: single digit value 9 not caught - really bad
 
 ## IS Problems Im aware of:
 - Walmart 24: multiple lines that say consolidated net income. 
 - Walmart 24: values recorded as -- for 0 break regex
 
-## Redesign:
-- consider altering OCR function to allow for more lenient threshold for joining lines.
-
-TO DO TOMORROW
-- At some point probabky need to store text as dict and include x coords for indentation / formatting 
-- Make found date logic more flexible so that it adds junk and doesnt break if the date isnt found but deletes it if the date is found. 
