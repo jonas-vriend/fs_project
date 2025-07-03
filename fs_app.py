@@ -12,8 +12,8 @@ from PIL import Image, ImageOps
 
 ########################### GLOBAL VARIABLES ###################################
 
-pdf_path = os.path.join("Financials", "BS", "UHG_bs_24.pdf") # I  change this to test different statements
-detect_vals = re.compile(r'^\(?-?\$?\d{1,3}(?:,\d{3})*(?:\.\d+)?\)?$')
+pdf_path = os.path.join("Financials", "IS", "UHG_is_20.pdf") # I  change this to test different statements
+detect_vals = re.compile(r'^\(?-?[$S]?\s?\d{1,3}(?:,\d{3})*(?:\.\d+)?\)?$')
 
 ################################################################################
 
@@ -55,7 +55,7 @@ def preprocess_img():
     no_lines = cv2.bitwise_or(no_lines, detected_lines)
     cleaned = cv2.bitwise_not(no_lines)
 
-    # Connected component analysis to remove small blobs
+    # Connected component analysis to remove small white artifacts
     num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(cleaned, connectivity=8)
     filtered = np.zeros_like(cleaned)
 
@@ -201,7 +201,61 @@ def preprocess_text(ocr_output, debug=False, y_thresh=30):
         print(f'Captured col_coords: {col_coords}')
     return col_coords, output
 
-    
+def add_indentation(raw_data, debug=False, x_thresh=75):
+    if debug:
+        print("Running add_indentation...")
+
+    output = []
+
+    # initialize min x
+    x1, _ = raw_data[0].get_x_coords()
+    min_x = x1
+
+    for line in raw_data[1:]:
+        x1, _ = line.get_x_coords()
+        if x1 < min_x:
+            min_x = x1
+
+    current_indent = 0
+    current_baseline = min_x
+    for line in raw_data:
+        x1, _ = line.get_x_coords()
+        if debug:
+            print(f"\nProcessing {line.get_text()}")
+            print(f"x1: {x1}, baseline: {current_baseline}, min_x: {min_x}")
+        
+        if x1 - current_baseline > 0 and abs(x1 - current_baseline) > x_thresh:
+            current_indent += 1
+            current_baseline = x1
+            line.add_indentation(current_indent)
+            output.append(line)
+            if debug:
+                print(f"Case 1: indent += 1 -> {current_indent}")
+        elif abs(x1 - min_x) < x_thresh:
+            current_indent = 0
+            current_baseline = min_x
+            line.add_indentation(current_indent)
+            output.append(line)
+            if debug:
+                print(f"Case 2: indent = 0")
+        elif abs(x1 - current_baseline) < x_thresh:
+            current_baseline = x1
+            line.add_indentation(current_indent)
+            if debug:
+                print(f"Case 3: within threshold, indent stays {current_indent}")
+        elif x1 - current_baseline < 0 and abs(x1 - current_baseline) > x_thresh:
+            current_indent -= 1
+            current_baseline = x1
+            line.add_indentation(current_indent)
+            output.append(line)
+            if debug:
+                print(f"Case 4: indent -= 1 -> {current_indent}")
+        else:
+            if debug:
+                print(f"NO CASE MATCHED FOR LINE: {line}")
+
+    return output
+
 def what_fs(cleaned):
     """
     - Iterates through labels of RawData objects to determine the type of financial statement.
@@ -247,8 +301,8 @@ def get_end(result):
     if result == 'BALANCE_SHEET':
         return re.compile(r'(?i)total.*liabilit(?:y|ies).*equity')
     else:
-        return re.compile(r'(?i)^.*net\s+\(?income\)?(?:\s+\(loss\))?.*')
-
+        return re.compile(r'(?i)^.*net\s+\(?(income|earnings)\)?(?:\s+\(loss\))?.*')
+    
 
 def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
     """
@@ -266,6 +320,8 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
 
     for line in lines:
         label = line.get_text()
+        label = label.replace('_', '').replace('.', '')
+        dollar_sign = line.get_dollar_sign()
 
         if not got_years and extract_date.search(label):
                 matches = year_pattern.findall(label)
@@ -283,9 +339,12 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
 
         new_line_item = LineItem()
 
+        if dollar_sign:
+            new_line_item.add_dollar_sign()
+
         vals = line.get_vals()
         if not line.get_vals() == []:
-            if end.match(label):
+            if end.match(label) and dollar_sign:
                 if debug:
                     print(f'Final line detected and included: {label}')
                 end_collection = True
@@ -303,7 +362,7 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
 
                 if distances[closest_idx] <= val_x_thresh:
                     if detect_vals.match(val):
-                        cleaned = val.replace('$', '').replace(',', '').replace('_', '').replace('(', '-').replace(')', '')
+                        cleaned = val.replace('$', '').replace(',', '').replace('_', '').replace('(', '-').replace(')', '').replace('S', '')
                         try:
                             val_num = int(cleaned)
                         except ValueError:
@@ -413,16 +472,8 @@ class RawData:
         self.text = None
         self.text_x_coords = (None, None)
         self.dollar_sign = False
+        self.indent = 0
         self.vals = []  # List of (val, x_coord) pairs
-
-    def get_text(self):
-        return self.text
-
-    def get_x_coords(self):
-        return self.text_x_coords
-
-    def get_vals(self):
-        return self.vals
 
     def add_text(self, text):
         assert isinstance(text, str), "Text must be a string"
@@ -437,6 +488,21 @@ class RawData:
     def add_dollar_sign(self):
         self.dollar_sign = True
 
+    def get_text(self):
+        return self.text
+
+    def get_x_coords(self):
+        return self.text_x_coords
+
+    def get_vals(self):
+        return self.vals
+    
+    def get_dollar_sign(self):
+        return self.dollar_sign
+    
+    def add_indentation(self, val):
+        self.indent = val
+
     def __str__(self):
         return f"TEXT: {self.text} | COORDS: {self.text_x_coords} | VALS: {self.vals}"
 
@@ -444,6 +510,7 @@ class RawData:
 class LineItem:
     def __init__(self):
         self.label = None
+        self.dollar_sign = False
         self.data = {}
 
     def add_label(self, label):
@@ -453,6 +520,9 @@ class LineItem:
     def add_data(self, year, value=None):
         assert isinstance(value, (int, float))
         self.data[year] = value
+
+    def add_dollar_sign(self):
+        self.dollar_sign = True
 
     def get_data(self):
         return self.data
@@ -472,6 +542,9 @@ class FinancialStatement:
     def add_line_item(self, data):
         assert isinstance(data, (LineItem))
         self.lines.append(data)
+    
+    def get_lines(self):
+        return self.lines
 
     def __str__(self):
         return "\n".join(str(line) for line in self.lines)
@@ -485,12 +558,15 @@ def main(debug=False, use_cache=False, export_filename="financial_statement.csv"
     - Builds financial statement object
     - Exports as CSV
     """
+    print("MAIN FUNCTION DEBUG VALUE:", debug)
     ocr_output, processed_img = get_data(cache=use_cache)
     col_coords, lines = preprocess_text(ocr_output, debug)
     debug_output(ocr_output, processed_img, col_coords)
-    completed = build_fs(col_coords, lines, debug)
+    print("DEBUG INSIDE add_indentation:", debug)
+    indented_lines = add_indentation(lines, debug)
+    completed = build_fs(col_coords, indented_lines, debug)
     export_fs(completed, export_filename)
 
 
 if __name__ == "__main__":
-    main(debug=True, use_cache=False)
+    main(debug=True, use_cache=True)
