@@ -144,6 +144,9 @@ def preprocess_text(ocr_output, debug=False, y_thresh=30):
             if detect_vals.match(text):
                 if debug:
                     print(f'DETECTED VAL: {text}')
+                if '$' in text or 'S' in text:
+                    new_line.add_dollar_sign()
+                    text = text.replace('S', '').replace('$', '')
                 line_val_coords.append(x2)
                 new_line.add_val(text, x2)
 
@@ -201,11 +204,10 @@ def preprocess_text(ocr_output, debug=False, y_thresh=30):
         print(f'Captured col_coords: {col_coords}')
     return col_coords, output
 
-def add_indentation(raw_data, debug=False, x_thresh=75):
+
+def add_indentation(raw_data, debug=False, x_thresh=50):
     if debug:
         print("Running add_indentation...")
-
-    output = []
 
     # initialize min x
     x1, _ = raw_data[0].get_x_coords()
@@ -228,14 +230,12 @@ def add_indentation(raw_data, debug=False, x_thresh=75):
             current_indent += 1
             current_baseline = x1
             line.add_indentation(current_indent)
-            output.append(line)
             if debug:
                 print(f"Case 1: indent += 1 -> {current_indent}")
         elif abs(x1 - min_x) < x_thresh:
             current_indent = 0
             current_baseline = min_x
             line.add_indentation(current_indent)
-            output.append(line)
             if debug:
                 print(f"Case 2: indent = 0")
         elif abs(x1 - current_baseline) < x_thresh:
@@ -247,14 +247,12 @@ def add_indentation(raw_data, debug=False, x_thresh=75):
             current_indent -= 1
             current_baseline = x1
             line.add_indentation(current_indent)
-            output.append(line)
             if debug:
                 print(f"Case 4: indent -= 1 -> {current_indent}")
         else:
             if debug:
                 print(f"NO CASE MATCHED FOR LINE: {line}")
 
-    return output
 
 def what_fs(cleaned):
     """
@@ -362,7 +360,7 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
 
                 if distances[closest_idx] <= val_x_thresh:
                     if detect_vals.match(val):
-                        cleaned = val.replace('$', '').replace(',', '').replace('_', '').replace('(', '-').replace(')', '').replace('S', '')
+                        cleaned = val.replace(',', '').replace('_', '').replace('(', '-').replace(')', '')
                         try:
                             val_num = int(cleaned)
                         except ValueError:
@@ -558,13 +556,11 @@ def main(debug=False, use_cache=False, export_filename="financial_statement.csv"
     - Builds financial statement object
     - Exports as CSV
     """
-    print("MAIN FUNCTION DEBUG VALUE:", debug)
     ocr_output, processed_img = get_data(cache=use_cache)
     col_coords, lines = preprocess_text(ocr_output, debug)
     debug_output(ocr_output, processed_img, col_coords)
-    print("DEBUG INSIDE add_indentation:", debug)
-    indented_lines = add_indentation(lines, debug)
-    completed = build_fs(col_coords, indented_lines, debug)
+    add_indentation(lines, debug)
+    completed = build_fs(col_coords, lines, debug)
     export_fs(completed, export_filename)
 
 
