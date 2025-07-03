@@ -383,12 +383,12 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
                     elif debug:
                         print(f'REJECTED {val} AT X = {val_coord}, TOO FAR FROM LABEL {lab_x2}')
                     skip_erroneous_val = True
-
-            new_line_item.add_label(label)
-            new_fs.add_line_item(new_line_item)
     
             if skip_erroneous_val: # Need to add an additional check shouldnt just concatenate without checking coords first. 
                 continue
+
+            new_line_item.add_label(label)
+            new_fs.add_line_item(new_line_item)
 
             # Fill missing years with 0
             for idx, year in enumerate(years):
