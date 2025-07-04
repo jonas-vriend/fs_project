@@ -2,7 +2,7 @@
 ## TOP PRIORITIES:
 - (Andre) OCR fails to detect single charater values (See UHG BS 24). Also can split lines that shouldnt be split if it thinks they are crooked. 
     - Potential fixes: maybe preprocessing to dilate characters so OCR can detect them, download easyocr package and tweak tolerances so splitting does not occur, get a better (hopefully free) ocr
-- (Jonas or Andre) Need to handle tricky _ 0s. IDEA - if the detect_lines finds it, and its within the appropriate x thresholds, and the line item it matches up with has exmpty values, and there isnt a value dorectly above it within a certain threhold then it can be incldued. 
+- (Jonas or Andre) Need to handle tricky _ 0s. IDEA - if the detect_lines finds it, and its within the appropriate x thresholds, and the line item it matches up with has exmpty values, and there isnt a value directly above it within a certain threhold then it can be incldued. 
 - (Jonas or Andre) Need to be able to handle batch ingestion of several docs especially with overlapping years.
 ## REST:
 - Go through functions and clean them up. Look for ways to make code more efficient
