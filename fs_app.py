@@ -291,6 +291,53 @@ def what_fs(cleaned):
     else:
         raise ValueError('Could not recognize document')
 
+def merge_lines(lines, debug=False):
+    """
+    Merges lines that are split into two lines IF:
+    - The second line does not start with a capitalized letter
+    - The second line is indented farther than the first
+    - Either line has values but not both
+    """
+    output = []
+
+    for line in lines:
+        label, _, vals, d_sign, indent = line.get_all()
+
+        if not label:
+            output.append(line)
+            continue
+    
+        first_char = label[0]
+
+        if not (first_char.isalpha() and first_char.isupper()):
+            if not output:
+                output.append(line)
+                continue
+            prev = output[-1]
+            prev_label, _, prev_vals, _, prev_indent = prev.get_all()
+            
+            if prev_indent < indent:
+                if (vals and prev_vals) or (not vals and not prev_vals):
+                    if debug:
+                        print(f'Tried to merge but ran into Error. At least one line must have vals but not both. Lines: {label} | {prev_label}')
+                    output.append(line)
+                    continue
+                full_label = prev_label.strip() + ' ' + label.strip()
+                if debug:
+                    print(f'MERGIING LINE. LINE NOW: {full_label}')
+                if vals:
+                    prev.vals = vals
+                if d_sign:
+                    prev.add_dollar_sign()
+                prev.add_text(full_label)
+            else:
+                if debug:
+                    print(f'Warning. Line: {label} is not capitalized but could not merge')
+                output.append(line)
+        else:
+            output.append(line)
+
+    return output
 
 def get_end(result):
     """
@@ -384,7 +431,7 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
                         print(f'REJECTED {val} AT X = {val_coord}, TOO FAR FROM LABEL {lab_x2}')
                     skip_erroneous_val = True
     
-            if skip_erroneous_val: # Need to add an additional check shouldnt just concatenate without checking coords first. 
+            if skip_erroneous_val: 
                 continue
 
             new_line_item.add_label(label)
@@ -486,6 +533,9 @@ class RawData:
     def add_dollar_sign(self):
         self.dollar_sign = True
 
+    def add_indentation(self, val):
+        self.indent = val
+
     def get_text(self):
         return self.text
 
@@ -498,8 +548,13 @@ class RawData:
     def get_dollar_sign(self):
         return self.dollar_sign
     
-    def add_indentation(self, val):
-        self.indent = val
+    def get_indent(self):
+        return self.indent
+    
+    def get_all(self):
+        return self.text, self.text_x_coords, self.vals, self.dollar_sign, self.indent
+    
+
 
     def __str__(self):
         return f"TEXT: {self.text} | COORDS: {self.text_x_coords} | VALS: {self.vals}"
@@ -560,7 +615,8 @@ def main(debug=False, use_cache=False, export_filename="financial_statement.csv"
     col_coords, lines = preprocess_text(ocr_output, debug)
     debug_output(ocr_output, processed_img, col_coords)
     add_indentation(lines, debug)
-    completed = build_fs(col_coords, lines, debug)
+    merged_lines = merge_lines(lines, debug)
+    completed = build_fs(col_coords, merged_lines, debug)
     export_fs(completed, export_filename)
 
 
