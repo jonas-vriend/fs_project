@@ -7,12 +7,12 @@ import csv
 import numpy as np
 from collections import Counter
 from pdf2image import convert_from_path
-from PIL import Image, ImageOps 
+from PIL import Image, ImageOps
 
 
 ########################### GLOBAL VARIABLES ###################################
 
-pdf_path = os.path.join("Financials", "IS", "UHG_is_20.pdf") # I  change this to test different statements
+pdf_path = os.path.join("Financials", "BS", "UHG_bs_22.pdf")  # I change this to test different statements
 detect_vals = re.compile(r'^\(?-?[$S]?\s?\d{1,3}(?:,\d{3})*(?:\.\d+)?\)?$')
 
 ################################################################################
@@ -28,7 +28,7 @@ def preprocess_img():
 
     higher_clarity = ImageOps.autocontrast(higher_clarity)
 
-    scale_factor = 2  
+    scale_factor = 2
     larger = higher_clarity.resize(
         (higher_clarity.width * scale_factor, higher_clarity.height * scale_factor)
     )
@@ -37,7 +37,7 @@ def preprocess_img():
     img = np.array(larger)
 
     # Binarize image (invert for easier line detection)
-    _, binary = cv2.threshold(img, 160, 255, cv2.THRESH_BINARY_INV) # Very important: first number arg is threshold for whether something is treated as white or black which can delete entire sections if not careful. Consider making this dynamic in the future
+    _, binary = cv2.threshold(img, 160, 255, cv2.THRESH_BINARY_INV)  # Very important: first number arg is threshold for whether something is treated as white or black which can delete entire sections if not careful. Consider making this dynamic in the future
 
     # Detect horizontal lines
     horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (40, 1))
@@ -87,7 +87,11 @@ def get_data(cache=True):
     else:
         reader = easyocr.Reader(['en'])
         print(f"Debug image saved to: {debug_path}")
-        results = reader.readtext(np.array(processed), width_ths=0.5)
+        results = reader.readtext(
+            np.array(processed), 
+            width_ths=0.5,
+            text_threshold=0.55  # Very important: bringing this down from default allows for detection of single digit values 
+        )
         with open(cache_file, "wb") as f:
             pickle.dump(results, f)
         return results, processed
@@ -95,7 +99,7 @@ def get_data(cache=True):
 
 def get_coords(bbox):
     """
-    Unpacks bbox coordinates from OCR results 
+    Unpacks bbox coordinates from OCR results
     """
     tl, tr, _, _ = bbox
     x1, y = tl
@@ -175,13 +179,7 @@ def preprocess_text(ocr_output, debug=False, y_thresh=30):
             start_y = y
             line_val_coords = []
             current_x1 = x1
-
-            # First fragment of new line
-            if detect_vals.match(text):
-                line_val_coords.append(x2)
-                new_line.add_val(text, x2)
-            elif text.strip() != '$':
-                start_line = text
+            start_line = text
 
     # Handle last line
     if start_line:
@@ -225,7 +223,7 @@ def add_indentation(raw_data, debug=False, x_thresh=50):
         if debug:
             print(f"\nProcessing {line.get_text()}")
             print(f"x1: {x1}, baseline: {current_baseline}, min_x: {min_x}")
-        
+
         if x1 - current_baseline > 0 and abs(x1 - current_baseline) > x_thresh:
             current_indent += 1
             current_baseline = x1
@@ -257,7 +255,7 @@ def add_indentation(raw_data, debug=False, x_thresh=50):
 def what_fs(cleaned):
     """
     - Iterates through labels of RawData objects to determine the type of financial statement.
-    - Checks if expected words are in labels. 
+    - Checks if expected words are in labels.
     - If a word is found, adds 1 to the score associated with that statement (ie if BS word is found adds +1 to BS score).
     - The statement type will be determined based on whether more IS words or BS words are detected
     """
@@ -306,7 +304,7 @@ def merge_lines(lines, debug=False):
         if not label:
             output.append(line)
             continue
-    
+
         first_char = label[0]
 
         if not (first_char.isalpha() and first_char.isupper()):
@@ -339,6 +337,7 @@ def merge_lines(lines, debug=False):
 
     return output
 
+
 def get_end(result):
     """
     Determines Regex to use to identify end of statement
@@ -365,17 +364,17 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
 
     for line in lines:
         label = line.get_text()
-        label = label.replace('_', '').replace('.', '')
+        label = label.strip('.').strip('_')  # for formats where labels and vals separated with periods
         dollar_sign = line.get_dollar_sign()
 
         if not got_years and extract_date.search(label):
-                matches = year_pattern.findall(label)
-                years = [int(y) for y in matches]
-                got_years = True
-                new_fs = FinancialStatement()
-                if debug:
-                    print('CAPTURED YEARS:', years)
-                continue
+            matches = year_pattern.findall(label)
+            years = [int(y) for y in matches]
+            got_years = True
+            new_fs = FinancialStatement()
+            if debug:
+                print('CAPTURED YEARS:', years)
+            continue
 
         elif end_collection and not end.match(label):
             if debug:
@@ -424,15 +423,12 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
                         print(f'REJECTED: {val} AT X = {val_coord}, TOO FAR FROM COL {col_coords[closest_idx]}')
                     _, lab_x2 = line.get_x_coords()
                     if abs(val_coord - lab_x2) <= 600:
-                        label = label + ' ' +  str(val) 
+                        label = label + ' ' + str(val) 
+                        line.add_text(label)
                         if debug:
                             print(f'ADDING {val} TO END OF LABEL. LABEL NOW: {label}')
                     elif debug:
                         print(f'REJECTED {val} AT X = {val_coord}, TOO FAR FROM LABEL {lab_x2}')
-                    skip_erroneous_val = True
-    
-            if skip_erroneous_val: 
-                continue
 
             new_line_item.add_label(label)
             new_fs.add_line_item(new_line_item)
@@ -544,17 +540,15 @@ class RawData:
 
     def get_vals(self):
         return self.vals
-    
+
     def get_dollar_sign(self):
         return self.dollar_sign
-    
+
     def get_indent(self):
         return self.indent
-    
+
     def get_all(self):
         return self.text, self.text_x_coords, self.vals, self.dollar_sign, self.indent
-    
-
 
     def __str__(self):
         return f"TEXT: {self.text} | COORDS: {self.text_x_coords} | VALS: {self.vals}"
@@ -564,6 +558,7 @@ class LineItem:
     def __init__(self):
         self.label = None
         self.dollar_sign = False
+        self.indent = 0
         self.data = {}
 
     def add_label(self, label):
@@ -579,7 +574,7 @@ class LineItem:
 
     def get_data(self):
         return self.data
-    
+
     def get_dollar_sign(self):
         return self.dollar_sign
 
@@ -595,7 +590,7 @@ class FinancialStatement:
     def add_line_item(self, data):
         assert isinstance(data, (LineItem))
         self.lines.append(data)
-    
+
     def get_lines(self):
         return self.lines
 
