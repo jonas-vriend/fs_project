@@ -75,12 +75,17 @@ def preprocess_img():
     for cnt in contours:
         x, y, w, h = cv2.boundingRect(cnt)
         if w >= 30: 
-            underscore_coords.append((x, y, w, h))  # Could convert to center coords if preferred
+            underscore_coords.append((x, y, w, h))
             label = f"({x},{y})"
-            font_scale = 0.5
-            thickness = 1
             font = cv2.FONT_HERSHEY_SIMPLEX
-            cv2.putText(color_overlay, label, (x, y - 10), font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA)
+            font_scale = .5
+            thickness = 1
+
+            # Put text just above the line, aligned to left corner
+            text_x = x
+            text_y = y - 5 if y - 5 > 0 else y + 10  # Avoid going above image
+            cv2.putText(color_overlay, label, (text_x, text_y), font, font_scale, (0, 0, 0), thickness, cv2.LINE_AA)
+
     # ---- Save debug overlay ---- #
     debug_path = os.path.join("Debug", "debug_detected_lines.png")
     Image.fromarray(color_overlay).save(debug_path)
@@ -222,9 +227,12 @@ def preprocess_text(ocr_output, debug=False, y_thresh=30):
         print(f'Captured col_coords: {col_coords}')
     return col_coords, output
 
-def add_underscore_zeros(lines, col_coords, underscore_coords, debug=False, val_x_thresh=75, y_thresh=30):
-
+def add_underscore_zeros(lines, col_coords, underscore_coords, debug=False, val_x_thresh=75, y_thresh=60):
+    can_num = 0
     for (x, y, w, _) in underscore_coords:
+        can_num += 1
+        if debug:
+            print('\n=== NEW CANDIDATE ===')
         rx = x + w
         for line in lines:
             line_y = line.get_y_val()
@@ -247,7 +255,7 @@ def add_underscore_zeros(lines, col_coords, underscore_coords, debug=False, val_
 
                         if candidate_place in accounted_for:
                             if debug:
-                                print(f'REJECTING candidate 0 with coords x: {rx} y: {y}. Val already exists in this position. LINE: {line.get_text()}')
+                                print(f'REJECTING candidate {can_num} with coords x: {rx} y: {y}. Val already exists in this position. LINE: {line.get_text()} LINE Y: {line_y}')
                             continue
 
                         else:
@@ -261,19 +269,19 @@ def add_underscore_zeros(lines, col_coords, underscore_coords, debug=False, val_
                             if not added:
                                 line.vals.append(('0', rx))
                             if debug:
-                                    print(f'INSERTED 0 AT X: {rx}, Y: {y}, LINE: {line.get_text()} LINE_Y {line_y}')
+                                print(f'INSERTED candidate {can_num} AT X: {rx}, Y: {y}, LINE: {line.get_text()} LINE_Y {line_y}')
                             continue
                     else:
                         if debug:
-                            print(f'REJECTING candidate 0 with coords x: {rx} y: {y}. Failed threshold check. LINE: {line.get_text()}')
+                            print(f'REJECTING candidate {can_num} with coords x: {rx} y: {y}. Failed x threshold check. LINE: {line.get_text()}')
                         continue
                 else:
                     if debug:
-                        print(f'REJECTING candidate 0 with coords x: {rx} y: {y}. Vals already accounted for. LINE: {line.get_text()}')
+                        print(f'REJECTING candidate {can_num} with coords x: {rx} y: {y}. Vals already accounted for. LINE: {line.get_text()}')
                     continue
             else:
                 if debug:
-                    print(f'REJECTING candidate 0 with coords x: {rx} y: {y}. Y thresh failed. LINE: {line.get_text()} Y: {line_y}')     
+                    print(f'REJECTING candidate {can_num} with coords x: {rx} y: {y}. Y thresh failed. LINE: {line.get_text()} Y: {line_y}')     
     return
 
 def add_indentation(raw_data, debug=False, x_thresh=50):
@@ -702,4 +710,4 @@ def main(debug=False, use_cache=False, export_filename="financial_statement.csv"
 
 
 if __name__ == "__main__":
-    main(debug=True, use_cache=False)
+    main(debug=True, use_cache=True)
