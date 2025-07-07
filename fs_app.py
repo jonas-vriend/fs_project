@@ -20,62 +20,80 @@ detect_vals = re.compile(r'^\(?-?[$S]?\s?\d{1,3}(?:,\d{3})*(?:\.\d+)?\)?$')
 
 def preprocess_img():
     """
-    Converts PDF to image, increases clarity, inverts to black background and white text to improve OCR performance, removes summing lines.
+    Converts PDF to image and enhances it for OCR.
+    Detects and removes summing lines.
+    Identifies underscore lines (potential 0s) not overlapping summing lines.
+    Returns: cleaned image, debug path, underscore_coords
     """
+    # Convert PDF to grayscale image
     image = convert_from_path(pdf_path, dpi=300)
+    gray = image[0].convert("L")
+    contrast_img = ImageOps.autocontrast(gray)
 
-    higher_clarity = image[0].convert("L")
-
-    higher_clarity = ImageOps.autocontrast(higher_clarity)
-
+    # Scale for better OCR
     scale_factor = 2
-    larger = higher_clarity.resize(
-        (higher_clarity.width * scale_factor, higher_clarity.height * scale_factor)
-    )
+    resized = contrast_img.resize((gray.width * scale_factor, gray.height * scale_factor))
+    img = np.array(resized)
 
-    # Convert PIL to OpenCV grayscale
-    img = np.array(larger)
+    # Threshold and invert for line detection
+    _, binary = cv2.threshold(img, 160, 255, cv2.THRESH_BINARY_INV)
 
-    # Binarize image (invert for easier line detection)
-    _, binary = cv2.threshold(img, 160, 255, cv2.THRESH_BINARY_INV)  # Very important: first number arg is threshold for whether something is treated as white or black which can delete entire sections if not careful. Consider making this dynamic in the future
+    # ---- Summing lines (red) ---- #
+    summing_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (70, 1))
+    summing_lines = cv2.morphologyEx(binary, cv2.MORPH_OPEN, summing_kernel, iterations=2)
 
-    # Detect horizontal lines
-    horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (40, 1))
-    detected_lines = cv2.morphologyEx(binary, cv2.MORPH_OPEN, horizontal_kernel, iterations=2)
+    # ---- Underscore candidates (green) ---- #
+    underscore_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (70, 1))
+    raw_underscores = cv2.morphologyEx(binary, cv2.MORPH_OPEN, underscore_kernel, iterations=1)
 
-    # Visualize horizontal lines on original for debugging
-    color_img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-    color_img[detected_lines > 0] = [0, 255, 0]  # green for detected lines
-    debug_line_path = os.path.join("Debug", "debug_detected_lines.png")
+    # ---- Isolate underscore lines NOT overlapping summing lines ---- #
+    filtered_underscores = cv2.subtract(raw_underscores, summing_lines)
 
-    Image.fromarray(color_img).save(debug_line_path)
+    # ---- Create debug overlay ---- #
+    color_overlay = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    color_overlay[summing_lines > 0] = [255, 0, 0]      # Red for summing lines
+    color_overlay[filtered_underscores > 0] = [0, 255, 0]  # Green for underscore 0s
 
-    # Remove horizontal lines from binary
-    no_lines = cv2.bitwise_not(binary)
-    no_lines = cv2.bitwise_or(no_lines, detected_lines)
-    cleaned = cv2.bitwise_not(no_lines)
+    # ---- Remove summing lines from image ---- #
+    binary_no_summing = cv2.bitwise_not(binary)
+    no_summing = cv2.bitwise_or(binary_no_summing, summing_lines)
+    cleaned = cv2.bitwise_not(no_summing)
 
-    # Connected component analysis to remove small white artifacts
+    # ---- Remove small noise blobs ---- #
     num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(cleaned, connectivity=8)
     filtered = np.zeros_like(cleaned)
-
     for i in range(1, num_labels):
         area = stats[i, cv2.CC_STAT_AREA]
-        if area >= 20:  # keep components with sufficient area
+        if area >= 20:
             filtered[labels == i] = 255
 
-    # Convert to RGB for PIL
-    cleaned_rgb = cv2.cvtColor(filtered, cv2.COLOR_GRAY2RGB)
-    final_image = Image.fromarray(cleaned_rgb)
+    final_image = Image.fromarray(cv2.cvtColor(filtered, cv2.COLOR_GRAY2RGB))
 
-    return final_image, debug_line_path
+    # ---- Extract bounding boxes of underscore lines ---- #
+    contours, _ = cv2.findContours(filtered_underscores, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    underscore_coords = []
+    for cnt in contours:
+        x, y, w, h = cv2.boundingRect(cnt)
+        if w >= 30: 
+            underscore_coords.append((x, y, w, h))  # Could convert to center coords if preferred
+            label = f"({x},{y})"
+            font_scale = 0.5
+            thickness = 1
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            cv2.putText(color_overlay, label, (x, y - 10), font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA)
+    # ---- Save debug overlay ---- #
+    debug_path = os.path.join("Debug", "debug_detected_lines.png")
+    Image.fromarray(color_overlay).save(debug_path)
+
+    return final_image, debug_path, underscore_coords
+
 
 
 def get_data(cache=True):
     """
     Loads or creates cached file
     """
-    processed, debug_path = preprocess_img()
+    processed, debug_path, underscore_coords = preprocess_img()
     image_filename = os.path.splitext(os.path.basename(pdf_path))[0]
     cache_file = os.path.join("Cache", f"ocr_cache_{image_filename}.pkl")
 
@@ -83,7 +101,7 @@ def get_data(cache=True):
         with open(cache_file, "rb") as f:
             results = pickle.load(f)
         print(f"Loaded OCR results from cache file: {cache_file}")
-        return results, processed
+        return results, processed, underscore_coords
     else:
         reader = easyocr.Reader(['en'])
         print(f"Debug image saved to: {debug_path}")
@@ -94,7 +112,7 @@ def get_data(cache=True):
         )
         with open(cache_file, "wb") as f:
             pickle.dump(results, f)
-        return results, processed
+        return results, processed, underscore_coords
 
 
 def get_coords(bbox):
@@ -167,6 +185,7 @@ def preprocess_text(ocr_output, debug=False, y_thresh=30):
             # Finalize previous line
             new_line.add_text(start_line)
             new_line.add_x_coords(current_x1, x2)
+            new_line.add_y_val(start_y)
             if debug:
                 print(f'COMPLETED LINE: {start_line}, VALS: {new_line.get_vals()}')
             if line_val_coords: # good dont need to change
@@ -185,6 +204,7 @@ def preprocess_text(ocr_output, debug=False, y_thresh=30):
     if start_line:
         new_line.add_text(start_line)
         new_line.add_x_coords(current_x1, x2)
+        new_line.add_y_val(start_y)
         if debug:
             print(f'ADDING FINAL LINE: {start_line}')
         if line_val_coords:
@@ -202,6 +222,59 @@ def preprocess_text(ocr_output, debug=False, y_thresh=30):
         print(f'Captured col_coords: {col_coords}')
     return col_coords, output
 
+def add_underscore_zeros(lines, col_coords, underscore_coords, debug=False, val_x_thresh=75, y_thresh=30):
+
+    for (x, y, w, _) in underscore_coords:
+        rx = x + w
+        for line in lines:
+            line_y = line.get_y_val()
+            vals = line.get_vals()
+            if abs(y - line_y) < y_thresh:
+
+                if len(col_coords) > len(vals):
+                    candidate_distances = [abs(rx - col_x) for col_x in col_coords]
+                    candidate_closest_idx = np.argmin(candidate_distances)
+                    candidate_place = col_coords[candidate_closest_idx]
+
+                    if candidate_distances[candidate_closest_idx] <= val_x_thresh:
+                        val_coords = [val_coord for _, val_coord in vals]
+                        accounted_for = []
+
+                        for val_coord in val_coords:
+                            val_distances = [abs(val_coord - col_x) for col_x in col_coords]
+                            val_closest_idx = np.argmin(val_distances)
+                            accounted_for.append(col_coords[val_closest_idx])
+
+                        if candidate_place in accounted_for:
+                            if debug:
+                                print(f'REJECTING candidate 0 with coords x: {rx} y: {y}. Val already exists in this position. LINE: {line.get_text()}')
+                            continue
+
+                        else:
+                            added = False
+                            for i, coord in enumerate(accounted_for):
+                                if candidate_place < coord:
+                                    line.vals.insert(i, ('0', rx))
+                                    added = True
+                                    break
+                            
+                            if not added:
+                                line.vals.append(('0', rx))
+                            if debug:
+                                    print(f'INSERTED 0 AT X: {rx}, Y: {y}, LINE: {line.get_text()} LINE_Y {line_y}')
+                            continue
+                    else:
+                        if debug:
+                            print(f'REJECTING candidate 0 with coords x: {rx} y: {y}. Failed threshold check. LINE: {line.get_text()}')
+                        continue
+                else:
+                    if debug:
+                        print(f'REJECTING candidate 0 with coords x: {rx} y: {y}. Vals already accounted for. LINE: {line.get_text()}')
+                    continue
+            else:
+                if debug:
+                    print(f'REJECTING candidate 0 with coords x: {rx} y: {y}. Y thresh failed. LINE: {line.get_text()} Y: {line_y}')     
+    return
 
 def add_indentation(raw_data, debug=False, x_thresh=50):
     if debug:
@@ -299,7 +372,7 @@ def merge_lines(lines, debug=False):
     output = []
 
     for line in lines:
-        label, _, vals, d_sign, indent = line.get_all()
+        label, _, vals, d_sign, indent, _ = line.get_all()
 
         if not label:
             output.append(line)
@@ -312,7 +385,7 @@ def merge_lines(lines, debug=False):
                 output.append(line)
                 continue
             prev = output[-1]
-            prev_label, _, prev_vals, _, prev_indent = prev.get_all()
+            prev_label, _, prev_vals, _, prev_indent, _ = prev.get_all()
             
             if prev_indent < indent:
                 if (vals and prev_vals) or (not vals and not prev_vals):
@@ -360,7 +433,7 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
     new_fs = FinancialStatement()
     fs_type = what_fs(lines)
     end = get_end(fs_type)
-    years = ['Year ' + str(num + 1) for num in range(len(col_coords))] # Default years in case yeaars not found
+    years = ['Year ' + str(num + 1) for num in range(len(col_coords))] # Default years in case years not found
 
     for line in lines:
         label = line.get_text()
@@ -514,6 +587,7 @@ class RawData:
         self.text_x_coords = (None, None)
         self.dollar_sign = False
         self.indent = 0
+        self.y_val = None
         self.vals = []  # List of (val, x_coord) pairs
 
     def add_text(self, text):
@@ -532,6 +606,9 @@ class RawData:
     def add_indentation(self, val):
         self.indent = val
 
+    def add_y_val(self, y):
+        self.y_val = y
+
     def get_text(self):
         return self.text
 
@@ -546,9 +623,12 @@ class RawData:
 
     def get_indent(self):
         return self.indent
+    
+    def get_y_val(self):
+        return self.y_val
 
     def get_all(self):
-        return self.text, self.text_x_coords, self.vals, self.dollar_sign, self.indent
+        return self.text, self.text_x_coords, self.vals, self.dollar_sign, self.indent, self.y_val
 
     def __str__(self):
         return f"TEXT: {self.text} | COORDS: {self.text_x_coords} | VALS: {self.vals}"
@@ -606,14 +686,20 @@ def main(debug=False, use_cache=False, export_filename="financial_statement.csv"
     - Builds financial statement object
     - Exports as CSV
     """
-    ocr_output, processed_img = get_data(cache=use_cache)
+    ocr_output, processed_img, underscore_coords = get_data(cache=use_cache)
     col_coords, lines = preprocess_text(ocr_output, debug)
+    if underscore_coords:
+        print("\n[DEBUG] Underscore line coordinates:")
+        print(f'Num underscores:{len(underscore_coords)}')
+        for x, y, w, h in underscore_coords:
+            print(f"Underscore box: x={x}, y={y}, w={w}, h={h}")
+        add_underscore_zeros(lines, col_coords, underscore_coords, debug)
     debug_output(ocr_output, processed_img, col_coords)
-    add_indentation(lines, debug)
-    merged_lines = merge_lines(lines, debug)
-    completed = build_fs(col_coords, merged_lines, debug)
+    add_indentation(lines)
+    merged_lines = merge_lines(lines)
+    completed = build_fs(col_coords, merged_lines)
     export_fs(completed, export_filename)
 
 
 if __name__ == "__main__":
-    main(debug=True, use_cache=True)
+    main(debug=True, use_cache=False)
