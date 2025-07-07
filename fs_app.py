@@ -12,13 +12,13 @@ from PIL import Image, ImageOps
 
 ########################### GLOBAL VARIABLES ###################################
 
-pdf_path = os.path.join("Financials", "BS", "UHG_bs_22.pdf")  # I change this to test different statements
+pdf_path = os.path.join("Financials", "BS", "UHG_bs_18.pdf")  # I change this to test different statements
 detect_vals = re.compile(r'^\(?-?[$S]?\s?\d{1,3}(?:,\d{3})*(?:\.\d+)?\)?$')
 
 ################################################################################
 
 
-def preprocess_img():
+def preprocess_img(debug):
     """
     Converts PDF to image and enhances it for OCR.
     Detects and removes summing lines.
@@ -76,6 +76,8 @@ def preprocess_img():
         x, y, w, h = cv2.boundingRect(cnt)
         if w >= 30: 
             underscore_coords.append((x, y, w, h))
+            if debug:
+                print(f'Captured line: X: {x} Y: {y}')
             label = f"({x},{y})"
             font = cv2.FONT_HERSHEY_SIMPLEX
             font_scale = .5
@@ -94,11 +96,11 @@ def preprocess_img():
 
 
 
-def get_data(cache=True):
+def get_data(cache=True, debug=False):
     """
     Loads or creates cached file
     """
-    processed, debug_path, underscore_coords = preprocess_img()
+    processed, debug_path, underscore_coords = preprocess_img(debug)
     image_filename = os.path.splitext(os.path.basename(pdf_path))[0]
     cache_file = os.path.join("Cache", f"ocr_cache_{image_filename}.pkl")
 
@@ -164,8 +166,10 @@ def preprocess_text(ocr_output, debug=False, y_thresh=30):
 
     new_line = RawData()
     for bbox, text, _ in ocr_output[1:]:
-        x1, x2, y = get_coords(bbox)
 
+        if len(text) == 1 and text not in {'$', 'S'}:
+            continue
+        x1, x2, y = get_coords(bbox)
         if y in range(start_y - y_thresh, start_y + y_thresh):
 
             if detect_vals.match(text):
@@ -181,6 +185,7 @@ def preprocess_text(ocr_output, debug=False, y_thresh=30):
                 if text.strip() in {'$', 'S'}:
                     new_line.add_dollar_sign()
                     continue  # $ added in excel formatting. Do not add to RawData
+                
                 else:
                     if debug:
                         print(f'DETECTED LABEL FRAGMENT: {text}')
@@ -270,7 +275,7 @@ def add_underscore_zeros(lines, col_coords, underscore_coords, debug=False, val_
                                 line.vals.append(('0', rx))
                             if debug:
                                 print(f'INSERTED candidate {can_num} AT X: {rx}, Y: {y}, LINE: {line.get_text()} LINE_Y {line_y}')
-                            continue
+                            break
                     else:
                         if debug:
                             print(f'REJECTING candidate {can_num} with coords x: {rx} y: {y}. Failed x threshold check. LINE: {line.get_text()}')
@@ -479,7 +484,6 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
 
             assigned_vals = [None] * len(col_coords)
 
-            skip_erroneous_val = False
             for val, val_coord in vals:
                 # Find closest column index
                 distances = [abs(val_coord - col_x) for col_x in col_coords]
@@ -694,18 +698,14 @@ def main(debug=False, use_cache=False, export_filename="financial_statement.csv"
     - Builds financial statement object
     - Exports as CSV
     """
-    ocr_output, processed_img, underscore_coords = get_data(cache=use_cache)
+    ocr_output, processed_img, underscore_coords = get_data(use_cache, debug)
     col_coords, lines = preprocess_text(ocr_output, debug)
     if underscore_coords:
-        print("\n[DEBUG] Underscore line coordinates:")
-        print(f'Num underscores:{len(underscore_coords)}')
-        for x, y, w, h in underscore_coords:
-            print(f"Underscore box: x={x}, y={y}, w={w}, h={h}")
         add_underscore_zeros(lines, col_coords, underscore_coords, debug)
     debug_output(ocr_output, processed_img, col_coords)
     add_indentation(lines)
-    merged_lines = merge_lines(lines)
-    completed = build_fs(col_coords, merged_lines)
+    merged_lines = merge_lines(lines, debug)
+    completed = build_fs(col_coords, merged_lines, debug)
     export_fs(completed, export_filename)
 
 
