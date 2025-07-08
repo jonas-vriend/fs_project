@@ -12,7 +12,7 @@ from PIL import Image, ImageOps
 
 ########################### GLOBAL VARIABLES ###################################
 
-pdf_path = os.path.join("Financials", "BS", "UHG_bs_18.pdf")  # I change this to test different statements
+pdf_path = os.path.join("Financials", "BS", "UHG_bs_20.pdf")  # I change this to test different statements
 detect_vals = re.compile(r'^\(?-?[$S]?\s?\d{1,3}(?:,\d{3})*(?:\.\d+)?\)?$')
 
 ################################################################################
@@ -126,10 +126,11 @@ def get_coords(bbox):
     """
     Unpacks bbox coordinates from OCR results
     """
-    tl, tr, _, _ = bbox
-    x1, y = tl
+    tl, tr, bl, _ = bbox
+    x1, y1 = tl
     x2, _ = tr
-    return (x1, x2, y)
+    _, y2 = bl
+    return (x1, x2, y1, y2)
 
 
 def get_x_bounds(list_of_coords, num_years):
@@ -149,7 +150,7 @@ def get_x_bounds(list_of_coords, num_years):
     return col_coords
 
 
-def preprocess_text(ocr_output, debug=False, y_thresh=30):
+def preprocess_text(ocr_output, debug=False, y_thresh=50):
     """
     Builds RawData objects for each line. Also determines position of line item values by calling get_x_bounds()
     """
@@ -160,7 +161,7 @@ def preprocess_text(ocr_output, debug=False, y_thresh=30):
 
     #Starts very first line for loop to compare to
     start_bbox, first_line, _ = ocr_output[0]
-    x1, x2, start_y = get_coords(start_bbox)
+    x1, x2, start_y1, start_y2 = get_coords(start_bbox)
     current_x1 = x1
     start_line = first_line
 
@@ -169,8 +170,8 @@ def preprocess_text(ocr_output, debug=False, y_thresh=30):
 
         if len(text) == 1 and text not in {'$', 'S'}:
             continue
-        x1, x2, y = get_coords(bbox)
-        if y in range(start_y - y_thresh, start_y + y_thresh):
+        x1, x2, y1, y2 = get_coords(bbox)
+        if abs(y1 - start_y1) < y_thresh:
 
             if detect_vals.match(text):
                 if debug:
@@ -195,7 +196,7 @@ def preprocess_text(ocr_output, debug=False, y_thresh=30):
             # Finalize previous line
             new_line.add_text(start_line)
             new_line.add_x_coords(current_x1, x2)
-            new_line.add_y_val(start_y)
+            new_line.add_y_vals(start_y1, start_y2)
             if debug:
                 print(f'COMPLETED LINE: {start_line}, VALS: {new_line.get_vals()}')
             if line_val_coords: # good dont need to change
@@ -205,7 +206,8 @@ def preprocess_text(ocr_output, debug=False, y_thresh=30):
 
             # Reset everything for new line
             new_line = RawData()
-            start_y = y
+            start_y1 = y1
+            start_y2 = y2
             line_val_coords = []
             current_x1 = x1
             start_line = text
@@ -214,7 +216,7 @@ def preprocess_text(ocr_output, debug=False, y_thresh=30):
     if start_line:
         new_line.add_text(start_line)
         new_line.add_x_coords(current_x1, x2)
-        new_line.add_y_val(start_y)
+        new_line.add_y_vals(start_y1, start_y2)
         if debug:
             print(f'ADDING FINAL LINE: {start_line}')
         if line_val_coords:
@@ -240,42 +242,33 @@ def add_underscore_zeros(lines, col_coords, underscore_coords, debug=False, val_
             print('\n=== NEW CANDIDATE ===')
         rx = x + w
         for line in lines:
-            line_y = line.get_y_val()
+            line_y1, line_y2  = line.get_y_vals()
             vals = line.get_vals()
-            if abs(y - line_y) < y_thresh:
 
+            if y in range(line_y1, line_y2):
                 if len(col_coords) > len(vals):
+                    # Find closest column for underscore
                     candidate_distances = [abs(rx - col_x) for col_x in col_coords]
                     candidate_closest_idx = np.argmin(candidate_distances)
-                    candidate_place = col_coords[candidate_closest_idx]
 
                     if candidate_distances[candidate_closest_idx] <= val_x_thresh:
-                        val_coords = [val_coord for _, val_coord in vals]
-                        accounted_for = []
+                        # Get existing column indices for real values in this line
+                        existing_col_idxs = [
+                            np.argmin([abs(val_coord - col_x) for col_x in col_coords])
+                            for _, val_coord in vals
+                        ]
 
-                        for val_coord in val_coords:
-                            val_distances = [abs(val_coord - col_x) for col_x in col_coords]
-                            val_closest_idx = np.argmin(val_distances)
-                            accounted_for.append(col_coords[val_closest_idx])
-
-                        if candidate_place in accounted_for:
+                        # Check if that column is already filled
+                        if candidate_closest_idx in existing_col_idxs:
                             if debug:
-                                print(f'REJECTING candidate {can_num} with coords x: {rx} y: {y}. Val already exists in this position. LINE: {line.get_text()} LINE Y: {line_y}')
+                                print(f'SKIPPING candidate {can_num}: column {candidate_closest_idx} already filled. LINE: {line.get_text()}')
                             continue
 
-                        else:
-                            added = False
-                            for i, coord in enumerate(accounted_for):
-                                if candidate_place < coord:
-                                    line.vals.insert(i, ('0', rx))
-                                    added = True
-                                    break
-                            
-                            if not added:
-                                line.vals.append(('0', rx))
-                            if debug:
-                                print(f'INSERTED candidate {can_num} AT X: {rx}, Y: {y}, LINE: {line.get_text()} LINE_Y {line_y}')
-                            break
+                        # Safe to insert
+                        line.vals.append(('0', rx))
+                        if debug:
+                            print(f'INSERTED candidate {can_num} at col {candidate_closest_idx}, x={rx}, y={y}, LINE: {line.get_text()}')
+                        break
                     else:
                         if debug:
                             print(f'REJECTING candidate {can_num} with coords x: {rx} y: {y}. Failed x threshold check. LINE: {line.get_text()}')
@@ -286,8 +279,8 @@ def add_underscore_zeros(lines, col_coords, underscore_coords, debug=False, val_
                     continue
             else:
                 if debug:
-                    print(f'REJECTING candidate {can_num} with coords x: {rx} y: {y}. Y thresh failed. LINE: {line.get_text()} Y: {line_y}')     
-    return
+                    print(f'REJECTING candidate {can_num} with coords x: {rx} y: {y}. Y thresh failed. LINE: {line.get_text()} LINE Y1: {line_y1} LINE Y2: {line_y2}')
+
 
 def add_indentation(raw_data, debug=False, x_thresh=50):
     if debug:
@@ -599,7 +592,7 @@ class RawData:
         self.text_x_coords = (None, None)
         self.dollar_sign = False
         self.indent = 0
-        self.y_val = None
+        self.y_vals = (None, None)
         self.vals = []  # List of (val, x_coord) pairs
 
     def add_text(self, text):
@@ -618,8 +611,8 @@ class RawData:
     def add_indentation(self, val):
         self.indent = val
 
-    def add_y_val(self, y):
-        self.y_val = y
+    def add_y_vals(self, y1, y2):
+        self.y_vals = (y1, y2)
 
     def get_text(self):
         return self.text
@@ -636,11 +629,11 @@ class RawData:
     def get_indent(self):
         return self.indent
     
-    def get_y_val(self):
-        return self.y_val
+    def get_y_vals(self):
+        return self.y_vals
 
     def get_all(self):
-        return self.text, self.text_x_coords, self.vals, self.dollar_sign, self.indent, self.y_val
+        return self.text, self.text_x_coords, self.vals, self.dollar_sign, self.indent, self.y_vals
 
     def __str__(self):
         return f"TEXT: {self.text} | COORDS: {self.text_x_coords} | VALS: {self.vals}"
