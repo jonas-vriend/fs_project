@@ -54,7 +54,7 @@ def preprocess_img(debug):
     color_overlay[summing_lines > 0] = [255, 0, 0]      # Red for summing lines
     color_overlay[filtered_underscores > 0] = [0, 255, 0]  # Green for underscore 0s
 
-    # ---- Remove summing lines from image ---- #
+    # ---- Remove lines from image ---- #
     binary_no_summing = cv2.bitwise_not(binary)
     no_summing = cv2.bitwise_or(binary_no_summing, summing_lines)
     cleaned = cv2.bitwise_not(no_summing)
@@ -168,7 +168,9 @@ def preprocess_text(ocr_output, debug=False, y_thresh=50):
     new_line = RawData()
     for bbox, text, _ in ocr_output[1:]:
 
-        if len(text) == 1 and text not in {'$', 'S'}:
+        if len(text) == 1 and text.isalpha() and text not in {'$', 'S'}:
+            if debug:
+                print(f'skipping noise: {text}')
             continue
         x1, x2, y1, y2 = get_coords(bbox)
         if abs(y1 - start_y1) < y_thresh:
@@ -703,4 +705,4 @@ def main(debug=False, use_cache=False, export_filename="financial_statement.csv"
 
 
 if __name__ == "__main__":
-    main(debug=True, use_cache=True)
+    main(debug=True, use_cache=False)
