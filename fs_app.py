@@ -12,7 +12,7 @@ from PIL import Image, ImageOps
 
 ########################### GLOBAL VARIABLES ###################################
 
-pdf_path = os.path.join("Financials", "BS", "UHG_bs_20.pdf")  # I change this to test different statements
+pdf_path = os.path.join("Financials", "BS", "HAL_bs_17.pdf")  # I change this to test different statements
 detect_vals = re.compile(r'^\(?-?[$S]?\s?\d{1,3}(?:,\d{3})*(?:\.\d+)?\)?$')
 
 ################################################################################
@@ -95,7 +95,6 @@ def preprocess_img(debug):
     return final_image, debug_path, underscore_coords
 
 
-
 def get_data(cache=True, debug=False):
     """
     Loads or creates cached file
@@ -174,15 +173,15 @@ def preprocess_text(ocr_output, debug=False, y_thresh=50):
             continue
         x1, x2, y1, y2 = get_coords(bbox)
         if abs(y1 - start_y1) < y_thresh:
-
-            if detect_vals.match(text):
+            cleaned_text = (text.replace('S', '').replace('$', '')).strip()  # Meant to handle instances where $ of Y2 gets captured with $ of Y1 ie '2,019 $'
+            if detect_vals.match(cleaned_text):
                 if debug:
-                    print(f'DETECTED VAL: {text}')
+                    print(f'DETECTED VAL: {cleaned_text}')
                 if '$' in text or 'S' in text:
+
                     new_line.add_dollar_sign()
-                    text = text.replace('S', '').replace('$', '')
                 line_val_coords.append(x2)
-                new_line.add_val(text, x2)
+                new_line.add_val(cleaned_text, x2)
 
             else:
                 if text.strip() in {'$', 'S'}:
@@ -285,8 +284,6 @@ def add_underscore_zeros(lines, col_coords, underscore_coords, debug=False, val_
 
 
 def add_indentation(raw_data, debug=False, x_thresh=50):
-    if debug:
-        print("Running add_indentation...")
 
     # initialize min x
     x1, _ = raw_data[0].get_x_coords()
@@ -429,7 +426,7 @@ def get_end(result):
         return re.compile(r'(?i)^.*net\s+\(?(income|earnings)\)?(?:\s+\(loss\))?.*')
     
 
-def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
+def build_fs(col_coords, lines, debug=False, val_x_thresh=100):
     """
     Builds FinancialStatement object
     """
@@ -705,4 +702,4 @@ def main(debug=False, use_cache=False, export_filename="financial_statement.csv"
 
 
 if __name__ == "__main__":
-    main(debug=True, use_cache=False)
+    main(debug=True, use_cache=True)
