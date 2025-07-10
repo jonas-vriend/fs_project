@@ -12,7 +12,7 @@ from PIL import Image, ImageOps
 
 ########################### GLOBAL VARIABLES ###################################
 
-pdf_path = os.path.join("Financials", "IS", "Walmart_is_24.pdf")  # I change this to test different statements
+pdf_path = os.path.join("Financials", "BS", "Amazon_bs_20.pdf")  # I change this to test different statements
 detect_vals = re.compile(r'^\(?-?[$S]?\s?\d{1,3}(?:,\d{3})*(?:\.\d+)?\)?$')  # Regex to detect financial values on right side of financial statement
 
 ################################################################################
@@ -613,6 +613,7 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
 
             assigned_vals = [None] * len(col_coords)
 
+            erroneous_val = False
             for val, val_coord in vals:
                 # Find the closest column index based on X distance
                 distances = [abs(val_coord - col_x) for col_x in col_coords]
@@ -637,12 +638,18 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
                     # If val was probably misaligned and should be part of the label
                     if debug:
                         print(f'REJECTED: {val} AT X = {val_coord}, TOO FAR FROM COL {col_coords[closest_idx]}')
+
+                    # If only val detected got rejected, treat line item as heading and skip 0 padding step
+                    if len(vals) == 1:
+                        erroneous_val = True
                     _, lab_x2 = line.get_x_coords()
                     if abs(val_coord - lab_x2) <= 600:
                         label = label + ' ' + str(val) 
                         line.add_text(label)
                         if debug:
                             print(f'ADDING {val} TO END OF LABEL. LABEL NOW: {label}')
+
+                    # Didnt even get added to label - likely noise
                     elif debug:
                         print(f'REJECTED {val} AT X = {val_coord}, TOO FAR FROM LABEL {lab_x2}')
 
@@ -650,9 +657,10 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
             new_fs.add_line_item(new_line_item)
 
             # Fill in values for each expected year. Pad with 0s if necessary
-            for idx, year in enumerate(years):
-                value = assigned_vals[idx] if assigned_vals[idx] is not None else 0
-                new_line_item.add_data(year, value)
+            if not erroneous_val:
+                for idx, year in enumerate(years):
+                    value = assigned_vals[idx] if assigned_vals[idx] is not None else 0
+                    new_line_item.add_data(year, value)
 
         else:
             if end_collection:  # It may seem like this check isnt necessary but its important esp in IS with "net income per share" lines since they trigger the regex but dont have vals and shouldnt be included since final net income already captured
@@ -703,7 +711,7 @@ def debug_output(data, processed_img, col_coords, val_x_thresh=75, debug=False):
 
     for bbox, text, conf in data:
         if debug:
-            print(f"{text} (confidence: {conf:.2f})")
+            print(f"{text} | bbox: {bbox} | confidence: {conf:.2f}")
         bbox = [tuple(map(int, point)) for point in bbox]
         cv2.rectangle(img, bbox[0], bbox[2], (0, 255, 0), 2)
         cv2.putText(img, text, bbox[0], cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
@@ -834,7 +842,7 @@ def main(debug=False, use_cache=False, export_filename="financial_statement.csv"
     col_coords, lines = preprocess_text(ocr_output, debug)
     if underscore_coords:
         add_underscore_zeros(lines, col_coords, underscore_coords, debug)
-    debug_output(ocr_output, processed_img, col_coords)
+    debug_output(ocr_output, processed_img, col_coords, val_x_thresh=75, debug=False)
     add_indentation(lines)
     merged_lines = merge_lines(lines, debug)
     completed = build_fs(col_coords, merged_lines, debug)
