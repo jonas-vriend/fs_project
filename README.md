@@ -23,5 +23,5 @@
 
 
 ## IS Problems Im aware of:
-- Walmart 24: values recorded as -- for 0
+
 
