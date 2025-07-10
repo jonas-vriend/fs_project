@@ -12,7 +12,7 @@ from PIL import Image, ImageOps
 
 ########################### GLOBAL VARIABLES ###################################
 
-pdf_path = os.path.join("Financials", "BS", "Amazon_bs_20.pdf")  # I change this to test different statements
+pdf_path = os.path.join("Financials", "BS", "GE_bs_24.pdf")  # I change this to test different statements
 detect_vals = re.compile(r'^\(?-?[$S]?\s?\d{1,3}(?:,\d{3})*(?:\.\d+)?\)?$')  # Regex to detect financial values on right side of financial statement
 
 ################################################################################
@@ -204,7 +204,7 @@ def preprocess_text(ocr_output, debug=False, y_thresh=50):
 
         # Uses vertical allignment to determine whether to append current line or start a new one
         if abs(y1 - start_y1) < y_thresh:
-            cleaned_text = (text.replace('S', '').replace('$', '')).strip()  # Meant to handle instances where $ of Y2 gets captured with value of Y1 ie '2,019 $'
+            cleaned_text = text.replace('S', '').replace('$', '').replace(' ', '') # Meant to handle instances where $ of Y2 gets captured with value of Y1 ie '2,019 $'
 
             # Try to detect if the text is a financial value
             if detect_vals.match(cleaned_text):
@@ -639,9 +639,8 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
                     if debug:
                         print(f'REJECTED: {val} AT X = {val_coord}, TOO FAR FROM COL {col_coords[closest_idx]}')
 
-                    # If only val detected got rejected, treat line item as heading and skip 0 padding step
                     if len(vals) == 1:
-                        erroneous_val = True
+                        erroneous_val = True  # If only val detected got rejected, treat line item as heading and skip 0 padding step
                     _, lab_x2 = line.get_x_coords()
                     if abs(val_coord - lab_x2) <= 600:
                         label = label + ' ' + str(val) 
