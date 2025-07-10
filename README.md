@@ -5,9 +5,11 @@
 - (Andre) Go through functions and clean them up. Look for ways to make code more efficient
 - (Jonas) if case where val was part of label, need to prevent 0s from autofilling
 - (Jonas) Continue throwing financial statements at code and see if anything breaks
+- (Jonas) Look into improving extract date logic
 ## REST:
 - The order of operations of my code is kind of silly and should be improved. Should probably get y bounds first and then add vals to raw data with bounds check rather than handling 'erroneous_vals' in build_fs. Should also probably do years and end checks right after preprocess text 
 - OPTIONAL - Threshold to binarize image set at 160. Worked so far but could cause issues. Alternative is dynamic setting, but in testing led to a ton of artifacts. 
+- OPTIONAL - Consider change line item from dict in case multiple cuts (Apple IS)? 
 - hook this up to excel and format it with openpyxl
 - list of malformed lines that are highlighted in final excel output
 - At some point HTML frontend 
@@ -21,5 +23,5 @@
 
 
 ## IS Problems Im aware of:
-
+UHG 2018 - Really bad hallcuination where $ treated as 8
 
