@@ -23,5 +23,5 @@
 
 
 ## IS Problems Im aware of:
-UHG 2018 - Really bad hallcuination where $ treated as 8. More evidence that I should probably split preprocess_tex into two functions 
+UHG 2018 - Really bad hallcuination where $ treated as 8. More evidence that I should probably split preprocess_text into two functions 
 
