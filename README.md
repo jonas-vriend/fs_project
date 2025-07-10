@@ -20,8 +20,8 @@
 - Apple 2015: OCR doesnt catch the 0 in current portion of term debt.
 - Apple 2015: Date and FYE line too close so they merge and dont get caught by date regex. Tweaking y threshold causes other financial statemnts to break - Likely need to make date detection regex more lenient
 - Apple 2021: OCR splits the 26 off of FYE line - not catastrophic since this line isnt used but can forsee this happening to important values so want to avoid this
-
-
+- Accenture 24 - 2 places with dates. Obvious solution would be breaking up build_fs into two functions. finding year should factor in column alignment
+- Accenture 24 - OCR adds a space to one of the numbers in deferred revenue
 ## IS Problems Im aware of:
 UHG 2018 - Really bad hallcuination where $ treated as 8. More evidence that I should probably split preprocess_text into two functions 
 
