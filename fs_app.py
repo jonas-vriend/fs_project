@@ -511,16 +511,20 @@ def merge_lines(lines, debug=False):
                 full_label = prev_label.strip() + ' ' + label.strip()
                 if debug:
                     print(f'MERGIING LINE. LINE NOW: {full_label}')
+
+                # if continuation line has data, transfer to line above
                 if vals:
                     prev.vals = vals
                 if d_sign:
                     prev.add_dollar_sign()
                 prev.add_text(full_label)
             else:
+                # failed indentation check
                 if debug:
                     print(f'Warning. Line: {label} is not capitalized but could not merge')
                 output.append(line)
         else:
+            # Handles normal lines
             output.append(line)
 
     return output
@@ -538,7 +542,21 @@ def get_end(result):
 
 def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
     """
-    Builds FinancialStatement object
+    Builds a FinancialStatement object from parsed OCR line data.
+    - Determines the financial statement type (Balance Sheet or Income Statement).
+    - Extracts year labels from the header (e.g., "2022 2021").
+    - Iterates over each parsed line and builds a LineItem object with associated values.
+    - Matches each value to the closest column coordinate (representing each year).
+    - Adds headings or unquantified labels directly to the financial statement.
+
+    Args:
+        col_coords (list of int): X-coordinates representing columns of values (one per year).
+        lines (list of RawData): Lines parsed from OCR with detected labels/values/dollar signs.
+        debug (bool): If True, prints detailed diagnostic information.
+        val_x_thresh (int): Maximum allowed distance from a column coordinate for value matching.
+
+    Returns:
+        FinancialStatement: An object containing structured data parsed from the OCR output.
     """
     extract_date = re.compile(r'^(?:\D*?(?:19|20)\d{2}){2,}\D*$')
     year_pattern = re.compile(r'(?:19|20)\d{2}')
@@ -546,15 +564,20 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
     got_years = False
     end_collection = False
     new_fs = FinancialStatement()
+
+    # Infer financial statement type and stopping point
     fs_type = what_fs(lines)
     end = get_end(fs_type)
-    years = ['Year ' + str(num + 1) for num in range(len(col_coords))] # Default years in case years not found
+
+    # Default years in case years not found
+    years = ['Year ' + str(num + 1) for num in range(len(col_coords))]
 
     for line in lines:
         label = line.get_text()
         label = label.strip('.').strip('_')  # for formats where labels and vals separated with periods
         dollar_sign = line.get_dollar_sign()
 
+        # If years found, extract years and delete useless lines before years
         if not got_years and extract_date.search(label):
             matches = year_pattern.findall(label)
             years = [int(y) for y in matches]
@@ -564,7 +587,8 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
                 print('CAPTURED YEARS:', years)
             continue
 
-        elif end_collection and not end.match(label):
+        # End detected and line does not match end regex. Exclude useless lines
+        if end_collection and not end.match(label):
             if debug:
                 print(f'Final line detected. Excluded: {label}')
             break
@@ -574,8 +598,11 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
         if dollar_sign:
             new_line_item.add_dollar_sign()
 
+        # Checks if line item with vals
         vals = line.get_vals()
         if not line.get_vals() == []:
+
+            # Sets end_collection flag to true. Sometimes multiple lines match end collection and we want the last one which is why the loop does not stop here. 
             if end.match(label) and dollar_sign:
                 if debug:
                     print(f'Final line detected and included: {label}')
@@ -587,13 +614,14 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
             assigned_vals = [None] * len(col_coords)
 
             for val, val_coord in vals:
-                # Find closest column index
+                # Find the closest column index based on X distance
                 distances = [abs(val_coord - col_x) for col_x in col_coords]
                 closest_idx = np.argmin(distances)
 
+                # Confirms detected val is a val and not cut off from label. Happens when label ends with number
                 if distances[closest_idx] <= val_x_thresh:
                     if detect_vals.match(val):
-                        cleaned = val.replace(',', '').replace('_', '').replace('(', '-').replace(')', '')
+                        cleaned = val.replace(',', '').replace('_', '').replace('(', '-').replace(')', '') # Remove punctuation. Mark as negative with - if val in ()s
                         try:
                             val_num = int(cleaned)
                         except ValueError:
@@ -606,6 +634,7 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
                             print(f'VAL NOT RECOGNIZED. TREATING AS 0: {val}')
                     assigned_vals[closest_idx] = val_num
                 else:
+                    # If val was probably misaligned and should be part of the label
                     if debug:
                         print(f'REJECTED: {val} AT X = {val_coord}, TOO FAR FROM COL {col_coords[closest_idx]}')
                     _, lab_x2 = line.get_x_coords()
@@ -620,21 +649,22 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
             new_line_item.add_label(label)
             new_fs.add_line_item(new_line_item)
 
-            # Fill missing years with 0
+            # Fill in values for each expected year. Pad with 0s if necessary
             for idx, year in enumerate(years):
                 value = assigned_vals[idx] if assigned_vals[idx] is not None else 0
                 new_line_item.add_data(year, value)
 
         else:
-            if end_collection:
+            if end_collection:  # It may seem like this check isnt necessary but its important esp in IS with "net income per share" lines since they trigger the regex but dont have vals and shouldnt be included since final net income already captured
                 if debug:
-                    print(f'END REACHED. EXCLUDED: {label}')
+                   print(f'END REACHED. EXCLUDED: {label}')
                 break
 
-            if debug:
+            if debug:  # Checks for headings without vals
                 print(f'HEADING DETECTED: {label}')
             new_line_item.add_label(label)
             new_fs.add_line_item(new_line_item)
+
     if not got_years and debug:
         print('WARNING COULD NOT FIND YEARS.')
     return new_fs
