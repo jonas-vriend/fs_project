@@ -1,25 +1,20 @@
 # To do list:
 ## TOP PRIORITIES:
-- (Andre) OCR fails to detect single charater values (See Apple BS 15). Also can split lines that shouldnt be split if it thinks they are crooked. 
+- (Andre) OCR fails to detect single charater values (See Apple BS 15). Also can split lines that shouldnt be split if it thinks they are crooked (See Apple BS 21). 
     - Potential fixes: maybe preprocessing to dilate characters so OCR can detect them, download easyocr package and tweak tolerances so splitting does not occur, get a better (hopefully free) ocr
-- (Jonas) Need to work on underscore 0 logic. Consider looking into get_coords()
-- (Jonas) Need to be able to handle batch ingestion of several docs especially with overlapping years.
+- (Andre) Go through functions and clean them up. Look for ways to make code more efficient
+- (Jonas) Continue throwing financial statements at code and see if anything breaks
 ## REST:
-- Go through functions and clean them up. Look for ways to make code more efficient
 - OPTIONAL - Threshold to binarize image set at 160. Worked so far but could cause issues. Alternative is dynamic setting, but in testing led to a ton of artifacts. 
 - hook this up to excel and format it with openpyxl
 - list of malformed lines that are highlighted in final excel output
 - At some point HTML frontend 
 - logic that uses y pos to defend against values being split by OCR - would prefer to have better ocr
-- Use some sort of spell check autocorrect on labels to handle OCR hallcuinations - obv would prefer to have better ocr
 - OPTIONAL: Add FYE Line
 
 ## BS Problems Im aware of:
 - Apple 2015: OCR doesnt catch the 0 in current portion of term debt.
-- Apple 2017: Looks good
 - Apple 2021: OCR splits the 26 off of FYE line - not catastrophic since this line isnt used but can forsee this happening to important values so want to avoid this
-- Apple 2023: Looks good
-- Apple 2024: Looks good
 
 
 ## IS Problems Im aware of:
