@@ -98,7 +98,7 @@ def build_header(fs, start_row=1, start_col=2):
     # Add Financial Statement type
     row = start_row + 1
     fs_type = fs.get_type()
-    label = 'Consolidated Balance Sheets' if type == 'BALANCE_SHEET' else 'Consolidated Income Statements'
+    label = 'Consolidated Balance Sheets' if fs_type == 'BALANCE_SHEET' else 'Consolidated Income Statements'
     type_cell = ws_new.cell(row=row, column=start_col, value=label)
     type_cell.font = HEADER_FONT
 
