@@ -12,7 +12,7 @@ from PIL import Image, ImageOps
 
 ########################### GLOBAL VARIABLES ###################################
 
-pdf_path = os.path.join("Financials", "BS", "GE_bs_24.pdf")  # I change this to test different statements
+pdf_path = os.path.join("Financials", "BS", "Amazon_bs_24.pdf")  # I change this to test different statements
 detect_vals = re.compile(r'^\(?-?[$S]?\s?\d{1,3}(?:,\d{3})*(?:\.\d+)?\)?$')  # Regex to detect financial values on right side of financial statement
 
 ################################################################################
@@ -567,6 +567,7 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
 
     # Infer financial statement type and stopping point
     fs_type = what_fs(lines)
+    new_fs.add_type(fs_type)
     end = get_end(fs_type)
 
     # Default years in case years not found
@@ -576,6 +577,7 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
         label = line.get_text()
         label = label.strip('.').strip('_')  # for formats where labels and vals separated with periods
         dollar_sign = line.get_dollar_sign()
+        indent = line.get_indent()
 
         # If years found, extract years and delete useless lines before years
         if not got_years and extract_date.search(label):
@@ -587,6 +589,7 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
                 print('CAPTURED YEARS:', years)
             continue
 
+        new_fs.add_years(years)
         # End detected and line does not match end regex. Exclude useless lines
         if end_collection and not end.match(label):
             if debug:
@@ -597,6 +600,8 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
 
         if dollar_sign:
             new_line_item.add_dollar_sign()
+
+        new_line_item.add_indent(indent)
 
         # Checks if line item with vals
         vals = line.get_vals()
@@ -803,11 +808,25 @@ class LineItem:
     def add_dollar_sign(self):
         self.dollar_sign = True
 
+    def add_indent(self, indent):
+        self.indent = indent
+
+
+    def get_dollar_sign(self):
+        return self.dollar_sign
+
+    
+    def get_indent(self):
+        return self.indent
+
     def get_data(self):
         return self.data
 
     def get_dollar_sign(self):
         return self.dollar_sign
+    
+    def get_all(self):
+        return self.label, self.data, self.dollar_sign, self.indent
 
     def __str__(self):
         data_pairs = [(year, self.data[year]) for year in sorted(self.data.keys())]
@@ -817,13 +836,26 @@ class LineItem:
 class FinancialStatement:
     def __init__(self):
         self.lines = []
+        self.type = None
+
+    def add_type(self, type):
+        self.type = type
 
     def add_line_item(self, data):
         assert isinstance(data, (LineItem))
         self.lines.append(data)
+    
+    def add_years(self, years):
+        self.years = years
 
     def get_lines(self):
         return self.lines
+    
+    def get_type(self):
+        return self.type
+    
+    def get_years(self):
+        return self.years
 
     def __str__(self):
         return "\n".join(str(line) for line in self.lines)
