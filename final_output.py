@@ -6,7 +6,7 @@ import fs_app as fs
 # Define shared styles
 BLACK_FILL = style.PatternFill(fill_type="solid", start_color="FF000000", end_color="FF000000")
 YELLOW_FILL = style.PatternFill(fill_type="solid", start_color="FFFFFF00", end_color="FFFFFF00")
-WHITE_FONT = style.Font(name="Helvetica Neue", size=10, color="FFFFFF")
+HEADER_FONT = style.Font(name="Helvetica Neue", size=10, color="FFFFFF", bold=True)
 BLUE_FONT = style.Font(name="Helvetica Neue", size=8, color="0070c0")
 RED_ITALIC_FONT = style.Font(name="Helvetica Neue", size=8, color="FF0000", italic=True)
 LABEL_FONT = style.Font(name="Helvetica Neue", size=8)
@@ -82,7 +82,7 @@ def format_line_items(line_items, start_row=4, start_col=2):
         balance_val.font = RED_ITALIC_FONT
 
 def build_header(fs, start_row=1, start_col=2):
-    # Fill black background with dummy values (like empty string) to force color to appear
+    # Fill black background
     for i in range(3):
         for j in range(len(years) + 1):
             row = start_row + i
@@ -97,18 +97,18 @@ def build_header(fs, start_row=1, start_col=2):
 
     # Add Financial Statement type
     row = start_row + 1
-    label = 'Consolidated Balance Sheets' if fs.get_type() == 'BALANCE_SHEET' else 'Consolidated Income Statements'
+    fs_type = fs.get_type()
+    label = 'Consolidated Balance Sheets' if type == 'BALANCE_SHEET' else 'Consolidated Income Statements'
     type_cell = ws_new.cell(row=row, column=start_col, value=label)
-    type_cell.fill = BLACK_FILL  # Reapply black fill
-    type_cell.font = WHITE_FONT
+    type_cell.font = HEADER_FONT
 
     # Add Years
     for i, year in enumerate(years):
         row = start_row + 2
         col = start_col + 1 + i
         year_cell = ws_new.cell(row=row, column=col, value=year)
-        year_cell.fill = BLACK_FILL  # Reapply black fill
-        year_cell.font = WHITE_FONT
+        year_cell.alignment = style.Alignment(horizontal="center")
+        year_cell.font = HEADER_FONT
 
 # Run formatting
 format_line_items(lines)

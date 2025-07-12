@@ -567,7 +567,6 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
 
     # Infer financial statement type and stopping point
     fs_type = what_fs(lines)
-    new_fs.add_type(fs_type)
     end = get_end(fs_type)
 
     # Default years in case years not found
@@ -590,6 +589,7 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
             continue
 
         new_fs.add_years(years)
+        new_fs.add_type(fs_type)
         # End detected and line does not match end regex. Exclude useless lines
         if end_collection and not end.match(label):
             if debug:
