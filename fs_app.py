@@ -681,7 +681,6 @@ def build_fs(col_coords, lines, debug=False, val_x_thresh=75):
         print('WARNING COULD NOT FIND YEARS.')
     return new_fs
 
-
 def export_fs(fs, filename):
     """
     Exports FinancialStatement object to CSV
@@ -811,10 +810,8 @@ class LineItem:
     def add_indent(self, indent):
         self.indent = indent
 
-
     def get_dollar_sign(self):
         return self.dollar_sign
-
     
     def get_indent(self):
         return self.indent

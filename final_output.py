@@ -3,8 +3,16 @@ import openpyxl.styles as style
 import openpyxl.utils as utils
 import fs_app as fs
 
-# copying main in this to access fs for debugging purposes. Will delete later
-def main(debug=False, use_cache=True):
+# Define shared styles
+BLACK_FILL = style.PatternFill(fill_type="solid", start_color="FF000000", end_color="FF000000")
+YELLOW_FILL = style.PatternFill(fill_type="solid", start_color="FFFFFF00", end_color="FFFFFF00")
+WHITE_FONT = style.Font(name="Helvetica Neue", size=10, color="FFFFFF")
+BLUE_FONT = style.Font(name="Helvetica Neue", size=8, color="0070c0")
+RED_ITALIC_FONT = style.Font(name="Helvetica Neue", size=8, color="FF0000", italic=True)
+LABEL_FONT = style.Font(name="Helvetica Neue", size=8)
+
+# copying main from fs_app in this to access fs for debugging purposes. Will delete later
+def run_fs_app(debug=False, use_cache=True):
     """
     Orchestrates the pipeline:
     - Load/caches OCR
@@ -21,67 +29,92 @@ def main(debug=False, use_cache=True):
     completed = fs.build_fs(col_coords, merged_lines, debug)
     return completed
 
-new_fs = main()
+new_fs = run_fs_app()
 lines = new_fs.get_lines()
+years = new_fs.get_years()
+
 wb = xl.Workbook()
-
 del wb['Sheet']
-
 sheet_name = new_fs.get_type()
 ws_new = wb.create_sheet(title=sheet_name)
 
-
 def format_line_items(line_items, start_row=4, start_col=2):
-    years = new_fs.get_years()
     for i, line in enumerate(line_items):
         row = start_row + i
         label, values, dollar_sign, indent_level = line.get_all()
 
-        # Add labels 
+        # Add label cell
         cell = ws_new.cell(row=row, column=start_col, value=label)
+        cell.font = LABEL_FONT
 
-        # Set indentation. If header is uppercase, center.
+        # Set alignment: center if all caps heading, else indent
         if label.isupper() and label.replace(" ", "").isalpha():
-            alignment = style.Alignment(horizontal="center", indent=0)
+            cell.alignment = style.Alignment(horizontal="center", indent=0)
         else:
-            alignment = style.Alignment(horizontal="left", indent=indent_level)
+            cell.alignment = style.Alignment(horizontal="left", indent=indent_level)
 
-        cell.alignment = alignment
-
-        # Add values corresponding to each year
+        # Add values
         for j, year in enumerate(years):
             val = values.get(year, '')
-            val_cell = ws_new.cell(row=row, column=start_col + 1 + j, value=val)
-            val_cell.font = style.Font(color="0000FF")  # Blue font default for hardcoded vals
-            
-            # Format dollar signs and negagive numbers
+            col = start_col + 1 + j
+            val_cell = ws_new.cell(row=row, column=col, value=val)
+            val_cell.font = BLUE_FONT
+
             if isinstance(val, int):
                 if dollar_sign:
-                    val_cell.number_format = '$    #,##0;$    (#,##0)'
+                    val_cell.number_format = '_("$"* #,##0_);_("$"* (#,##0)'
                 else:
                     val_cell.number_format = '#,##0;(#,##0)'
-
             else:
                 val_cell.number_format = 'General'
-        
+    
     # Add balance check
     row += 2
     balance_check = ws_new.cell(row=row, column=start_col, value='Balance Check')
-    balance_check.font = style.Font(color="FF0000", italic=True)
+    balance_check.font = RED_ITALIC_FONT
 
     for i, year in enumerate(years):
-        column = start_col + 1 + i
-        col_letter = utils.get_column_letter(column)
-        check_formula = f"={col_letter}35 - {col_letter}15"  # Hardcoded but need to change once i make detection of summing lines dynamic
-        balance_val = ws_new.cell(row=row, column=column)
-        balance_val.value = check_formula
-        balance_val.font = style.Font(color="FF0000", italic=True)
+        col = start_col + 1 + i
+        col_letter = utils.get_column_letter(col)
+        formula = f"={col_letter}35 - {col_letter}15"  # Replace later with dynamic logic
+        balance_val = ws_new.cell(row=row, column=col)
+        balance_val.value = formula
+        balance_val.font = RED_ITALIC_FONT
 
+def build_header(fs, start_row=1, start_col=2):
+    # Fill black background with dummy values (like empty string) to force color to appear
+    for i in range(3):
+        for j in range(len(years) + 1):
+            row = start_row + i
+            col = start_col + j
+            cell = ws_new.cell(row=row, column=col)
+            cell.fill = BLACK_FILL
 
-            
+        # Add company name in yellow
+    company_name = ws_new.cell(row=start_row, column=start_col, value='COMPANY NAME')
+    company_name.fill = YELLOW_FILL
+    company_name.font = style.Font(name="Helvetica Neue", size=24, underline="single")
+
+    # Add Financial Statement type
+    row = start_row + 1
+    label = 'Consolidated Balance Sheets' if fs.get_type() == 'BALANCE_SHEET' else 'Consolidated Income Statements'
+    type_cell = ws_new.cell(row=row, column=start_col, value=label)
+    type_cell.fill = BLACK_FILL  # Reapply black fill
+    type_cell.font = WHITE_FONT
+
+    # Add Years
+    for i, year in enumerate(years):
+        row = start_row + 2
+        col = start_col + 1 + i
+        year_cell = ws_new.cell(row=row, column=col, value=year)
+        year_cell.fill = BLACK_FILL  # Reapply black fill
+        year_cell.font = WHITE_FONT
+
+# Run formatting
 format_line_items(lines)
+build_header(new_fs)
+
+# Save to file
 output_file = "formatted_output.xlsx"
 wb.save(output_file)
-print(f"Excel file saved as: {output_file}")    
-
-        
+print(f"Excel file saved as: {output_file}")
