@@ -70,3 +70,5 @@ To execute the run script:
 python3 -m backend.app.run
 ```
 Note: the `-m` is significant because it allows the backend.app directory to me recognized as a module/package. Without this, fs_app would be seen as a stand-alone scripy and the important would break. 
+
+Note: `run.py` is where you will run anything in the backend. Modify this function with the desired tasks and execute with the command above. 
