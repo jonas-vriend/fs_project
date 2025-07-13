@@ -128,3 +128,7 @@ class State(Enum):
     MERGED = auto()
     COMPLETED = auto()
     ERROR = auto()
+
+class Format(Enum):
+    CSV = auto()
+    XLSX = auto()

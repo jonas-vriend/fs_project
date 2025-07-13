@@ -6,7 +6,8 @@ import os
 import csv
 import numpy as np
 from collections import Counter
-from ..models import RawLine, FinancialStatement, LineItem, State
+from ..models import RawLine, FinancialStatement, LineItem, State, Format
+from ..export import export_fs_as_csv, export_fs_as_xlsx
 from .base import BaseProcessor
 from ..utils import preprocess_img, get_coords, get_x_bounds
 
@@ -20,7 +21,7 @@ detect_vals = re.compile(r'^\(?-?[$S]?\s?\d{1,3}(?:,\d{3})*(?:\.\d+)?\)?$')  # R
 
 class OcrProcessor(BaseProcessor): 
 
-    def __init__(self, pdf_path, debug=False, use_cache=False, export_filename="financial_statement.csv"):
+    def __init__(self, pdf_path, debug=False, use_cache=False, export_filename="financial_statement"):
         super().__init__(pdf_path, debug, use_cache, export_filename)
         
         # Runtime state
@@ -32,9 +33,6 @@ class OcrProcessor(BaseProcessor):
         self.raw_lines = None
         self.merged_lines = None
         self.fs = None  # Final FinancialStatement object
-
-    def export_fs_as_xlsx(self):
-        return super().export_fs_as_xlsx()
     
     def process(self):
         """
@@ -68,8 +66,6 @@ class OcrProcessor(BaseProcessor):
         self.build_fs() #state becomes COMPLETED
         print(self.state)
         assert self.fs is not None and len(self.fs.lines) > 0, "Financial statement build failed: no lines added"
-
-        self.export_fs_as_csv()
 
 
     def get_data(self):
@@ -649,32 +645,6 @@ class OcrProcessor(BaseProcessor):
         self.fs = new_fs
         self.state = State.COMPLETED
 
-
-    def export_fs_as_csv(self):
-        """
-        Exports FinancialStatement object to CSV
-        """
-        assert self.state == State.COMPLETED
-        all_years = []
-        seen = set()
-        for item in self.fs.lines:
-            for year in item.data.keys():
-                if year not in seen:
-                    seen.add(year)
-                    all_years.append(year)
-
-        with open(self.export_filename, "w", newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow(["Label"] + all_years)
-
-            for item in self.fs.lines:
-                row = [item.label]
-                for year in all_years:
-                    value = item.data.get(year, "")
-                    row.append(value)
-                writer.writerow(row)
-
-
     def debug_output(self, val_x_thresh=75):
         """
         - Draws bboxes and red lines denoting value position on financial statement.
@@ -707,4 +677,14 @@ class OcrProcessor(BaseProcessor):
 
         cv2.imwrite(os.path.join("Debug", "debug_overlay.png"), img)
 
+    def export(self, format: Format):
+        """
+        Exports FinancialStatement object to CSV
+        """
+        assert self.state == State.COMPLETED
+
+        if(format == Format.CSV):
+            export_fs_as_csv(self.fs, self.export_filename)
+        elif(format == Format.XLSX):
+            export_fs_as_xlsx(self.fs, self.export_filename)
 

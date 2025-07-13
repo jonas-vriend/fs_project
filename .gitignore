@@ -4,3 +4,5 @@ financial_statement.csv
 env/
 Debug/
 .python-version
+*.csv
+*.xlsx
