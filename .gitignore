@@ -1,3 +1,6 @@
 __pycache__/
 .DS_Store
 financial_statement.csv
+env/
+Debug/
+.python-version

@@ -28,3 +28,45 @@
 ## IS Problems Im aware of:
 - UHG 2018: Really bad hallcuination where $ treated as 8. More evidence that I should probably split preprocess_text into two functions 
 
+## Starting Development
+
+We need to install the pyenv package, which is a Python Version Manager. If not used, you can run into errors because some packages are dependent on specific of python.
+
+The following install pyenv and then sets the version of python in this directory/project to 3.10.13. 
+```
+brew update
+brew install pyenv
+
+echo 'export PYENV_ROOT="$HOME/.pyenv"' >> ~/.zprofile
+echo 'eval "$(pyenv init --path)"' >> ~/.zprofile
+echo 'eval "$(pyenv init -)"' >> ~/.zshrc
+exec "$SHELL"
+
+pyenv install 3.10.13
+pyenv local 3.10.13
+```
+
+Next, we want to create a virtual environment to create an isolated ecosystem for this packages to exist (and won't have dependecy issues with downloads outside this directory).
+
+```
+python -m venv env
+source env/bin/activate
+```
+
+Install dependencies/packages.
+```
+brew install poppler
+pip install -r requirements.txt
+```
+Note: Ensure you are in the latest version of Python
+
+## Run package
+Ensure you are in the fs_project outermost directory.
+
+Ensure you are in your virtual environment - you should see `(env)` in your terminal. If you are not in your virtual environment, you must: `source env/bin/activate`.
+
+To execute the run script:
+```
+python3 -m backend.app.run
+```
+Note: the `-m` is significant because it allows the backend.app directory to me recognized as a module/package. Without this, fs_app would be seen as a stand-alone scripy and the important would break. 
