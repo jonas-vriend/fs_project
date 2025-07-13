@@ -4,8 +4,10 @@ from .models import Format
 
 if __name__ == "__main__":
     pdf_path = os.path.join("Financials", "BS", "Amazon_bs_20.pdf")  # I change this to test different statements
-    ocr = OcrProcessor(pdf_path, debug=False, use_cache=False, export_filename="financial_statement")
-    ocr.process()
-    ocr.export(Format.CSV)
-    ocr.export(Format.XLSX)
+    
+    handler = OcrProcessor(pdf_path, debug=False, use_cache=False, export_filename="financial_statement") # initialize OcrProcessor objcet
+    
+    handler.process() # calls all the OCR functions and generate FS object
+    handler.export(Format.CSV) # export FS object to CSV
+    handler.export(Format.XLSX) # export FS object to XLSX
     
