@@ -3,19 +3,19 @@
 - (Andre) OCR fails to detect single charater values (See Apple BS 15). Also can split lines that shouldnt be split if it thinks they are crooked (See Apple BS 21). 
     - Potential fixes: maybe preprocessing to dilate characters so OCR can detect them, download easyocr package and tweak tolerances so splitting does not occur, get a better (hopefully free) ocr
 - (Andre) Go through functions and clean them up. Look for ways to make code more efficient
-- (Jonas) if case where val was part of label, need to prevent 0s from autofilling
 - (Jonas) Continue throwing financial statements at code and see if anything breaks
 - (Jonas) Look into improving extract date logic
-- (Jonas or Andre) Need to split preprocess text into two functions. Should identify val columns first and then assign stuff to label and val. Minimizes potential bugs
+- (Jonas or Andre) Need to split preprocess text into two functions. Should identify val columns first and then assign stuff to label and val. Minimizes
+potential bugs
+- (Jonas) Work on summing_line function tomorrow
 ## REST:
 - OPTIONAL - Threshold to binarize image set at 160. Worked so far but could cause issues. Alternative is dynamic setting, but in testing led to a ton of artifacts. 
 - BH balance sheet is split into two. Consider supporting multi page bs
 - OPTIONAL - Consider change line item from dict in case multiple cuts (Apple IS)? 
-- hook this up to excel and format it with openpyxl
 - list of malformed lines that are highlighted in final excel output
 - At some point HTML frontend 
 - logic that uses y pos to defend against values being split by OCR - would prefer to have better ocr
-- OPTIONAL: Add FYE Line
+- Add FYE Line, company name, fs_type to excel output
 
 ## BS Problems Im aware of:
 - Apple 2015: OCR doesnt catch the 0 in current portion of term debt.

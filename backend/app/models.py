@@ -70,12 +70,24 @@ class LineItem:
 
     def add_dollar_sign(self):
         self.dollar_sign = True
+    
+    def add_indent(self, indent):
+        self.indent = indent
+
+    def get_dollar_sign(self):
+        return self.dollar_sign
+
+    def get_indent(self):
+        return self.indent
 
     def get_data(self):
         return self.data
 
     def get_dollar_sign(self):
         return self.dollar_sign
+
+    def get_all(self):
+        return self.label, self.data, self.dollar_sign, self.indent
 
     def __str__(self):
         data_pairs = [(year, self.data[year]) for year in sorted(self.data.keys())]
@@ -85,13 +97,26 @@ class LineItem:
 class FinancialStatement:
     def __init__(self):
         self.lines = []
+        self.type = None
+    
+    def add_type(self, type):
+        self.type = type
 
     def add_line_item(self, data):
         assert isinstance(data, (LineItem))
         self.lines.append(data)
+    
+    def add_years(self, years):
+        self.years = years
 
     def get_lines(self):
         return self.lines
+    
+    def get_type(self):
+        return self.type
+    
+    def get_years(self):
+        return self.years
 
     def __str__(self):
         return "\n".join(str(line) for line in self.lines)

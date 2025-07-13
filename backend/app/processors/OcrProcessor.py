@@ -33,7 +33,9 @@ class OcrProcessor(BaseProcessor):
         self.merged_lines = None
         self.fs = None  # Final FinancialStatement object
 
-
+    def export_fs_as_xlsx(self):
+        return super().export_fs_as_xlsx()
+    
     def process(self):
         """
         Orchestrates the pipeline:
@@ -67,7 +69,7 @@ class OcrProcessor(BaseProcessor):
         print(self.state)
         assert self.fs is not None and len(self.fs.lines) > 0, "Financial statement build failed: no lines added"
 
-        self.export_fs()
+        self.export_fs_as_csv()
 
 
     def get_data(self):
@@ -531,6 +533,7 @@ class OcrProcessor(BaseProcessor):
 
         # Infer financial statement type and stopping point
         fs_type = self.what_fs()
+        new_fs.add_type(fs_type)
         end = self.get_end(fs_type)
 
         # Default years in case years not found
@@ -540,6 +543,7 @@ class OcrProcessor(BaseProcessor):
             label = line.get_text()
             label = label.strip('.').strip('_')  # for formats where labels and vals separated with periods
             dollar_sign = line.get_dollar_sign()
+            indent = line.get_indent()
 
             # If years found, extract years and delete useless lines before years
             if not got_years and extract_date.search(label):
@@ -551,6 +555,8 @@ class OcrProcessor(BaseProcessor):
                     print('CAPTURED YEARS:', years)
                 continue
 
+            new_fs.add_years(years)
+            new_fs.add_type(fs_type)
             # End detected and line does not match end regex. Exclude useless lines
             if end_collection and not end.match(label):
                 if self.debug:
@@ -561,6 +567,8 @@ class OcrProcessor(BaseProcessor):
 
             if dollar_sign:
                 new_line_item.add_dollar_sign()
+
+            new_line_item.add_indent(indent)
 
             # Checks if line item with vals
             vals = line.get_vals()
@@ -642,7 +650,7 @@ class OcrProcessor(BaseProcessor):
         self.state = State.COMPLETED
 
 
-    def export_fs(self):
+    def export_fs_as_csv(self):
         """
         Exports FinancialStatement object to CSV
         """
