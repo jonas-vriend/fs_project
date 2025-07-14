@@ -89,20 +89,3 @@ def get_coords(bbox):
         x2, _ = tr
         _, y2 = bl
         return (x1, x2, y1, y2)
-
-
-def get_x_bounds(list_of_coords, num_years):
-    """
-    Takes list of coordinates of detected values in each row and takes median value
-    of the right bbox border x values for each column as a guide for where the values should be
-    """
-    cols = [[] for _ in range(num_years)]
-
-    for coords in list_of_coords:
-        if not len(coords) == num_years:
-            continue
-        for i, coord in enumerate(coords):
-            cols[i].append(coord)
-
-    col_coords = [np.median(col) for col in cols]
-    return col_coords

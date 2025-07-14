@@ -3,13 +3,12 @@ import cv2
 import re
 import pickle
 import os
-import csv
 import numpy as np
 from collections import Counter
 from ..models import RawLine, FinancialStatement, LineItem, State, Format
 from ..export import export_fs_as_csv, export_fs_as_xlsx
 from .base import BaseProcessor
-from ..utils import preprocess_img, get_coords, get_x_bounds
+from ..utils import preprocess_img, get_coords
 
 
 ########################### GLOBAL VARIABLES ###################################
@@ -48,9 +47,10 @@ class OcrProcessor(BaseProcessor):
         assert self.underscore_coords is not None, "Underscore coordinates not set."
         print(self.state)
 
+        self.get_x_bounds()
+        assert self.col_coords is not None and len(self.col_coords) > 0, "No columns detected"
         
         self.preprocess_text() #state becomes PREPROCESSED
-        assert self.col_coords is not None and len(self.col_coords) > 0, "No columns detected"
         assert self.raw_lines is not None and len(self.raw_lines) > 0, "No text lines detected"
         print(self.state)
 
@@ -116,6 +116,64 @@ class OcrProcessor(BaseProcessor):
         self.state = State.LOADED_DATA
 
 
+    def get_x_bounds(self, y_thresh=50):
+        """
+        Takes list of coordinates of detected values in each row and takes median value
+        of the right bbox border x values for each column as a guide for where the values should be
+        """
+        assert self.state == State.LOADED_DATA
+
+        num_vals = []  #Stores how many values per line (to determine how many columns to expect)
+        all_val_coords = []  # list of lists storing x2 coords of each value on each line (to determine column divider)
+        line_val_coords = []  # Holds x2 coords of values on current line
+        
+        # Initialize y
+        for i, (bbox, text, _) in enumerate(self.ocr_output):
+            if detect_vals.match(text):
+                _, x2, y1, _ = get_coords(bbox)
+                line_val_coords.append(x2)
+                current_y = y1
+                start = i + 1
+                break
+
+        # Find x2 coords of detected vals
+        for bbox, text, _ in self.ocr_output[start:]:
+            if detect_vals.match(text):
+                _, x2, y1, _ = get_coords(bbox)
+                if abs(y1 - current_y) < y_thresh:
+                    line_val_coords.append(x2)
+                else:
+                    # New line detected. Append info to relevant lists; reset everything for new line
+                    num_vals.append(len(line_val_coords))
+                    all_val_coords.append(line_val_coords)
+                    current_y = y1
+                    line_val_coords = [x2]
+
+        # Handle last line
+        num_vals.append(len(line_val_coords))
+        all_val_coords.append(line_val_coords)
+
+        num_years = Counter(num_vals).most_common(1)[0][0]
+        if self.debug:
+            print(f'NUM YEARS: {num_years}')
+            print(f'VAL COORDS: {all_val_coords}')
+
+        # initialize columns based on number of years
+        cols = [[] for _ in range(num_years)]
+
+        # add coords to columns if number of coords matches number of years
+        for coords in all_val_coords:
+            if not len(coords) == num_years:
+                continue
+            for i, coord in enumerate(coords):
+                cols[i].append(coord)
+
+        # get median x value for each column
+        self.col_coords = [np.median(col) for col in cols]
+
+        if self.debug:
+            print(f'captured column coords: {self.col_coords}')
+
 
     def preprocess_text(self, y_thresh=50):
         """
@@ -132,10 +190,6 @@ class OcrProcessor(BaseProcessor):
         """
         assert self.state == State.LOADED_DATA
 
-        num_vals = []  #Stores how many values per line (to determine how many columns to expect)
-        all_val_coords = []  # list of lists storing x2 coords of each value on each line (to determine column divider)
-
-        line_val_coords = []  # Holds x2 coords of values on current line
         output = []  # Final list of RawLine objects
 
         # Initialize tracking variables with first OCR line
@@ -195,11 +249,6 @@ class OcrProcessor(BaseProcessor):
                 new_line.add_y_vals(start_y1, start_y2)
                 if self.debug:
                     print(f'COMPLETED LINE: {start_line}, VALS: {new_line.get_vals()}')
-
-                # Store value coordinate info for column estimation
-                if line_val_coords:
-                    all_val_coords.append(line_val_coords)
-                    num_vals.append(len(line_val_coords))
                 output.append(new_line)
 
                 # Reset everything for new line
@@ -217,23 +266,8 @@ class OcrProcessor(BaseProcessor):
             new_line.add_y_vals(start_y1, start_y2)
             if self.debug:
                 print(f'ADDING FINAL LINE: {start_line}')
-            if line_val_coords:
-                all_val_coords.append(line_val_coords)
-                num_vals.append(len(line_val_coords))
         output.append(new_line)
 
-        # Infer number of years (columns) based on most common number of values per line
-        num_years = Counter(num_vals).most_common(1)[0][0]
-        if self.debug:
-            print(f'NUM YEARS: {num_years}')
-            print(f'VAL COORDS: {all_val_coords}')
-        
-        # Infer column boundaries based on median x position
-        col_coords = get_x_bounds(all_val_coords, num_years)
-        if self.debug:
-            print(f'Captured col_coords: {col_coords}')
-        
-        self.col_coords = col_coords
         self.raw_lines = output
         self.state = State.PREPROCESSED
 
@@ -251,7 +285,7 @@ class OcrProcessor(BaseProcessor):
         """
         print(self.state)
         assert self.state == State.PREPROCESSED
-        can_num = 0  # Candidate counter for debugging/tracing
+        can_num = 0  # Candidate counter for debugging
 
         for (x, y, w, _) in self.underscore_coords:
             can_num += 1
@@ -414,10 +448,12 @@ class OcrProcessor(BaseProcessor):
         
         # Decision logic
         if bs_score > is_score and bs_score >= score_thresh:
-            print(f'BS identified. BS score: {bs_score} IS score: {is_score}')
+            if self.debug:
+                print(f'BS identified. BS score: {bs_score} IS score: {is_score}')
             return 'BALANCE_SHEET'
         elif is_score > bs_score and is_score >= score_thresh:
-            print(f'IS identified. IS score: {is_score} BS score: {bs_score}')
+            if self.debug:
+                print(f'IS identified. IS score: {is_score} BS score: {bs_score}')
             return 'INCOME_STATEMENT'
         else:
             raise ValueError('Could not recognize document')
@@ -645,6 +681,7 @@ class OcrProcessor(BaseProcessor):
         self.fs = new_fs
         self.state = State.COMPLETED
 
+
     def debug_output(self, val_x_thresh=75):
         """
         - Draws bboxes and red lines denoting value position on financial statement.
@@ -676,6 +713,7 @@ class OcrProcessor(BaseProcessor):
                 cv2.line(img, (left, err_bar_y), (right, err_bar_y), (0, 0, 255), 5)
 
         cv2.imwrite(os.path.join("Debug", "debug_overlay.png"), img)
+
 
     def export(self, format: Format):
         """
