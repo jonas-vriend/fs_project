@@ -23,8 +23,7 @@ class OcrProcessor(BaseProcessor):
     def __init__(self, pdf_path, debug=False, use_cache=False, export_filename="financial_statement"):
         super().__init__(pdf_path, debug, use_cache, export_filename)
         
-        # Runtime state
-        self.state = State.INIT
+        self.state = State.INIT  # Runtime state
         self.img = None
         self.ocr_output = None
         self.underscore_coords = None
@@ -175,7 +174,7 @@ class OcrProcessor(BaseProcessor):
             print(f'captured column coords: {self.col_coords}')
 
 
-    def preprocess_text(self, y_thresh=50):
+    def preprocess_text(self, val_x_thresh=75, y_thresh=50):
         """
         Converts raw OCR output into structured line objects (RawLine), identifying labels and numeric values.
 
@@ -214,21 +213,35 @@ class OcrProcessor(BaseProcessor):
             if abs(y1 - start_y1) < y_thresh:
                 cleaned_text = text.replace('S', '').replace('$', '').replace(' ', '') # Meant to handle instances where $ of Y2 gets captured with value of Y1 ie '2,019 $'
 
-                # Try to detect if the text is a financial value
+                # Detect if the text is a financial value
                 if detect_vals.match(cleaned_text):
-                    
-                    if self.debug: print(f'DETECTED VAL: {cleaned_text}')
 
-                    # Vals with $ are tracked for openpyxl formatting
-                    # Special handling if value ends with dollar sign.
-                    if '$' in text or 'S' in text: 
-                        if not text.startswith('$') or not text.startswith('S'):  # Prevents $ glued to end of val '2,019 $' from failing horizontal allignment check in build_fs()
-                            x2 -= 50 #DOLLAR_SIGN_CORRECTION
-                        new_line.add_dollar_sign()
-                
-                    # Add value and its right x-bound
-                    line_val_coords.append(x2)
-                    new_line.add_val(cleaned_text, x2)
+                    # Match val with closest column
+                    distances = [abs(x2 - col_x) for col_x in self.col_coords]
+                    closest_idx = np.argmin(distances)
+
+                    # Confirms detected val is a val and not cut off from label. Happens when label ends with number
+                    if distances[closest_idx] <= val_x_thresh:
+                    
+                        if self.debug:
+                            print(f'DETECTED VAL: {cleaned_text}')
+
+                        # Vals with $ are tracked for openpyxl formatting
+                        # Special handling if value ends with dollar sign.
+                        if '$' in text or 'S' in text: 
+                            if not text.startswith('$') or not text.startswith('S'):  # Prevents $ glued to end of val '2,019 $' from failing horizontal allignment check in build_fs()
+                                x2 -= 50 #DOLLAR_SIGN_CORRECTION
+                            new_line.add_dollar_sign()
+                    
+                        # Add value and its right x-bound
+                        line_val_coords.append(x2)
+                        new_line.add_val(cleaned_text, x2)
+                    else:
+                        # Val was misaligned and should be part of the label
+                        if self.debug:
+                            print(f'REJECTED: {text} AT X = {x2}, TOO FAR FROM COL {self.col_coords[closest_idx]}')
+                            print('Adding to label instead')
+                        start_line += ' ' + text
 
                 else:
                     # $ added in excel formatting. Do not add to RawLine
@@ -537,23 +550,13 @@ class OcrProcessor(BaseProcessor):
             return re.compile(r'(?i)^.*net\s+\(?(income|earnings)\)?(?:\s+\(loss\))?.*')
         
 
-    def build_fs(self, val_x_thresh=75):
+    def build_fs(self):
         """
         Builds a FinancialStatement object from parsed OCR line data.
         - Determines the financial statement type (Balance Sheet or Income Statement).
         - Extracts year labels from the header (e.g., "2022 2021").
         - Iterates over each parsed line and builds a LineItem object with associated values.
-        - Matches each value to the closest column coordinate (representing each year).
-        - Adds headings or unquantified labels directly to the financial statement.
-
-        Args:
-            col_coords (list of int): X-coordinates representing columns of values (one per year).
-            lines (list of RawLine): Lines parsed from OCR with detected labels/values/dollar signs.
-            debug (bool): If True, prints detailed diagnostic information.
-            val_x_thresh (int): Maximum allowed distance from a column coordinate for value matching.
-
-        Returns:
-            FinancialStatement: An object containing structured data parsed from the OCR output.
+        - Adds headings directly to the financial statement.
         """
         assert self.state == State.MERGED
         extract_date = re.compile(r'^(?:\D*?(?:19|20)\d{2}){2,}\D*$')
@@ -596,15 +599,16 @@ class OcrProcessor(BaseProcessor):
                 break
 
             new_line_item = LineItem()
-
             if dollar_sign:
                 new_line_item.add_dollar_sign()
-
             new_line_item.add_indent(indent)
 
             # Checks if line item with vals
             vals = line.get_vals()
             if not line.get_vals() == []:
+
+                if self.debug:
+                    print(f'LINE ITEM DETECTED: {label}')
 
                 # Sets end_collection flag to true. Sometimes multiple lines match end collection and we want the last one which is why the loop does not stop here. 
                 if end.match(label) and dollar_sign:
@@ -612,66 +616,47 @@ class OcrProcessor(BaseProcessor):
                         print(f'Final line detected and included: {label}')
                     end_collection = True
 
-                if self.debug:
-                    print(f'LINE ITEM DETECTED: {label}')
-
+                # add values to line item
                 assigned_vals = [None] * len(self.col_coords)
-
-                erroneous_val = False
+                if self.debug:
+                    print(f'vals before parsing: {vals}')
                 for val, val_coord in vals:
-                    # Find the closest column index based on X distance
-                    distances = [abs(val_coord - col_x) for col_x in self.col_coords]
-                    closest_idx = np.argmin(distances)
-
-                    # Confirms detected val is a val and not cut off from label. Happens when label ends with number
-                    if distances[closest_idx] <= val_x_thresh:
-                        if detect_vals.match(val):
-                            cleaned = val.replace(',', '').replace('_', '').replace('(', '-').replace(')', '') # Remove punctuation. Mark as negative with - if val in ()s
-                            try:
-                                val_num = int(cleaned)
-                            except ValueError:
-                                val_num = 0
-                                if self.debug:
-                                    print(f'COULD NOT PARSE VAL. TREATING AS 0: {val}')
-                        else:
+                    if detect_vals.match(val):
+                        cleaned = val.replace(',', '').replace('_', '').replace('(', '-').replace(')', '')
+                        try:
+                            val_num = float(cleaned)
+                        except ValueError:
                             val_num = 0
                             if self.debug:
-                                print(f'VAL NOT RECOGNIZED. TREATING AS 0: {val}')
-                        assigned_vals[closest_idx] = val_num
+                                print(f'COULD NOT PARSE VAL. TREATING AS 0: {val}')
                     else:
-                        # If val was probably misaligned and should be part of the label
+                        val_num = 0
                         if self.debug:
-                            print(f'REJECTED: {val} AT X = {val_coord}, TOO FAR FROM COL {self.col_coords[closest_idx]}')
+                            print(f'VAL NOT RECOGNIZED. TREATING AS 0: {val}')
+    
+                    # Assign to correct index
+                    distances = [abs(val_coord - col_x) for col_x in self.col_coords]
+                    closest_idx = np.argmin(distances)
+                    assigned_vals[closest_idx] = val_num
 
-                        if len(vals) == 1:
-                            erroneous_val = True  # If only val detected got rejected, treat line item as heading and skip 0 padding step
-                        _, lab_x2 = line.get_x_coords()
-                        if abs(val_coord - lab_x2) <= 600:
-                            label = label + ' ' + str(val) 
-                            line.add_text(label)
-                            if self.debug:
-                                print(f'ADDING {val} TO END OF LABEL. LABEL NOW: {label}')
 
-                        # Didnt even get added to label - likely noise
-                        elif self.debug:
-                            print(f'REJECTED {val} AT X = {val_coord}, TOO FAR FROM LABEL {lab_x2}')
-
+                # add data to new line item obj
                 new_line_item.add_label(label)
                 new_fs.add_line_item(new_line_item)
-
                 # Fill in values for each expected year. Pad with 0s if necessary
-                if not erroneous_val:
-                    for idx, year in enumerate(years):
-                        value = assigned_vals[idx] if assigned_vals[idx] is not None else 0
-                        new_line_item.add_data(year, value)
-
+                for idx, year in enumerate(years):
+                    value = assigned_vals[idx] if assigned_vals[idx] is not None else 0
+                    new_line_item.add_data(year, value)
+                if self.debug:
+                    print(f'Completed line item: {new_line_item}')
             else:
+                #Must be heading without vals
                 if end_collection:  # It may seem like this check isnt necessary but its important esp in IS with "net income per share" lines since they trigger the regex but dont have vals and shouldnt be included since final net income already captured
                     if self.debug:
                         print(f'END REACHED. EXCLUDED: {label}')
                     break
 
-                if self.debug:  # Checks for headings without vals
+                if self.debug: 
                     print(f'HEADING DETECTED: {label}')
                 new_line_item.add_label(label)
                 new_fs.add_line_item(new_line_item)

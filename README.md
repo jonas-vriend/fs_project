@@ -5,8 +5,6 @@
 - (Andre) Go through functions and clean them up. Look for ways to make code more efficient
 - (Jonas) Continue throwing financial statements at code and see if anything breaks
 - (Jonas) Look into improving extract date logic
-- (Jonas or Andre) Need to split preprocess text into two functions. Should identify val columns first and then assign stuff to label and val. Minimizes
-potential bugs
 - (Jonas) Work on summing_line function tomorrow
 ## REST:
 - OPTIONAL - Threshold to binarize image set at 160. Worked so far but could cause issues. Alternative is dynamic setting, but in testing led to a ton of artifacts. 
@@ -72,3 +70,14 @@ python3 -m backend.app.run
 Note: the `-m` is significant because it allows the backend.app directory to me recognized as a module/package. Without this, fs_app would be seen as a stand-alone scripy and the important would break. 
 
 Note: `run.py` is where you will run anything in the backend. Modify this function with the desired tasks and execute with the command above. 
+
+## Things Jonas Changed:
+moved get_x_coords from utils and put it in OcrProcessor. Get_x_coords now detects columns by itself and is called BEFORE preprocess text instead of at the end. This allows you to consider the value's x position when building rawline objects. 
+
+added get_x_coords into the processor() function
+
+Moved some logic from build_fs to preprocess_text. Edge cases exist where numbers at the end of labels are captured by the regex as values. I was handling this in build_fs but this is more of a preprocess text step so it was added to preprocess text
+
+Cast values as floats instead of ints in build_fs since values with decimal places were getting treated as 0s.
+
+
