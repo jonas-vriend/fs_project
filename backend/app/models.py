@@ -58,6 +58,8 @@ class LineItem:
         self.label = None
         self.dollar_sign = False
         self.indent = 0
+        self.summing_type = 0
+        self.summing_range = []
         self.data = {}
 
     def add_label(self, label):
@@ -74,6 +76,15 @@ class LineItem:
     def add_indent(self, indent):
         self.indent = indent
 
+    def add_summing_type(self, val):
+        self.summing_type = val
+
+    def add_summing_range(self, val):
+        self.summing_range.append(val)
+        
+    def get_label(self):
+        return self.label
+
     def get_dollar_sign(self):
         return self.dollar_sign
 
@@ -85,6 +96,12 @@ class LineItem:
 
     def get_dollar_sign(self):
         return self.dollar_sign
+
+    def get_summing_type(self):
+        return self.summing_type
+
+    def get_summing_range(self):
+        return self.summing_range
 
     def get_all(self):
         return self.label, self.data, self.dollar_sign, self.indent

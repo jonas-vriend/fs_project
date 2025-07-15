@@ -3,7 +3,7 @@ from .processors.OcrProcessor import OcrProcessor
 from .models import Format
 
 if __name__ == "__main__":
-    pdf_path = os.path.join("Financials", "IS", "UHG_is_18.pdf")  # I change this to test different statements
+    pdf_path = os.path.join("Financials", "BS", "Amazon_bs_24.pdf")  # I change this to test different statements
     
     handler = OcrProcessor(pdf_path, debug=False, use_cache=True, export_filename="financial_statement") # initialize OcrProcessor objcet
     
