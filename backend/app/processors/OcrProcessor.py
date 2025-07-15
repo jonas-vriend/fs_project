@@ -30,6 +30,7 @@ class OcrProcessor(BaseProcessor):
         self.col_coords = None
         self.raw_lines = None
         self.merged_lines = None
+        self.years = []
         self.fs = None  # Final FinancialStatement object
     
     def process(self):
@@ -48,7 +49,7 @@ class OcrProcessor(BaseProcessor):
 
         self.get_x_bounds()
         assert self.col_coords is not None and len(self.col_coords) > 0, "No columns detected"
-        
+
         self.preprocess_text() #state becomes PREPROCESSED
         assert self.raw_lines is not None and len(self.raw_lines) > 0, "No text lines detected"
         print(self.state)
@@ -174,22 +175,16 @@ class OcrProcessor(BaseProcessor):
             print(f'captured column coords: {self.col_coords}')
 
 
-    def preprocess_text(self, val_x_thresh=75, y_thresh=50):
+    def preprocess_text(self, date_x_thresh=200, val_x_thresh=75, y_thresh=50):
         """
-        Converts raw OCR output into structured line objects (RawLine), identifying labels and numeric values.
-
-        Args:
-            ocr_output (list): List of OCR results, where each element is [bbox, text, confidence] from EasyOCR.
-            debug (bool): If True, print detailed processing steps.
-            y_thresh (int): Vertical threshold to determine if two OCR elements are on the same line.
-
-        Returns:
-            col_coords (list of float): Estimated x-coordinate midpoints for each financial column (one per year).
-            output (list of RawLine): Structured representation of each line on the financial statement.
+        -Converts raw OCR output into structured line objects (RawLine), identifying labels and numeric values.
+        -Captures dates and removes junk preceding them.
         """
         assert self.state == State.LOADED_DATA
 
         output = []  # Final list of RawLine objects
+
+        year_pattern = re.compile(r'(?:19|20)\d{2}')
 
         # Initialize tracking variables with first OCR line
         start_bbox, first_line, _ = self.ocr_output[0]
@@ -198,6 +193,9 @@ class OcrProcessor(BaseProcessor):
         start_line = first_line
         new_line = RawLine()
 
+        got_years = False
+        found_first_year = False
+        date_line = None
         # Process each OCR-detected segment starting from the second entry
         for bbox, text, _ in self.ocr_output[1:]:
 
@@ -208,6 +206,38 @@ class OcrProcessor(BaseProcessor):
                 continue
             
             x1, x2, y1, y2 = get_coords(bbox)
+
+            # Captures date and removes lines from output if date captured
+            if not got_years:
+                if year_pattern.match(text):
+                    # Match detected year with closest col
+                    distances = [abs(x2 - col_coord) for col_coord in self.col_coords]
+                    closest_idx = np.argmin(distances)
+                    
+                    # confirm captured year is alligned with cols
+                    if abs(x2 - self.col_coords[closest_idx]) < date_x_thresh:
+                            if not found_first_year:
+                                date_line = y1
+                                self.years.append(int(text))
+                                found_first_year = True
+                                if self.debug:
+                                    print(f'year found: {text}')
+                                continue
+                            elif abs(y1 - date_line) < y_thresh: # Confirm subsequent captured years are on the same line
+                                self.years.append(int(text))
+                                if self.debug:
+                                    print(f'year found: {text}')
+                                continue
+                    else:
+                        if self.debug:
+                            print(f'failed: year {text} x2: {x2} col: {self.col_coords[closest_idx]}')
+
+                if found_first_year: # If years found already but no more matches, must be done with that line. 
+                    got_years = True
+                    new_start = len(output) + 1 # make new start the next line of output. Exclude prevous lines
+                    
+                    if self.debug:
+                        print(f'Captured years: {self.years}')
 
             # Uses vertical allignment to determine whether to append current line or start a new one
             if abs(y1 - start_y1) < y_thresh:
@@ -281,6 +311,17 @@ class OcrProcessor(BaseProcessor):
                 print(f'ADDING FINAL LINE: {start_line}')
         output.append(new_line)
 
+        if self.debug:
+            print(f'captured dates: {self.years}')
+
+        if self.years is not None and len(self.years) == len(self.col_coords):
+            output = output[new_start:]
+
+        # If something went wrong with capturing dates, create default ones
+        else:
+            self.years = ['Year ' + str(num + 1) for num in range(len(self.col_coords))]
+            if self.debug:
+                print('Warning. could not find years. Using defaults instead')
         self.raw_lines = output
         self.state = State.PREPROCESSED
 
@@ -554,15 +595,11 @@ class OcrProcessor(BaseProcessor):
         """
         Builds a FinancialStatement object from parsed OCR line data.
         - Determines the financial statement type (Balance Sheet or Income Statement).
-        - Extracts year labels from the header (e.g., "2022 2021").
         - Iterates over each parsed line and builds a LineItem object with associated values.
         - Adds headings directly to the financial statement.
         """
         assert self.state == State.MERGED
-        extract_date = re.compile(r'^(?:\D*?(?:19|20)\d{2}){2,}\D*$')
-        year_pattern = re.compile(r'(?:19|20)\d{2}')
 
-        got_years = False
         end_collection = False
         new_fs = FinancialStatement()
 
@@ -571,8 +608,6 @@ class OcrProcessor(BaseProcessor):
         new_fs.add_type(fs_type)
         end = self.get_end(fs_type)
 
-        # Default years in case years not found
-        years = ['Year ' + str(num + 1) for num in range(len(self.col_coords))]
 
         for line in self.merged_lines:
             label = line.get_text()
@@ -580,17 +615,7 @@ class OcrProcessor(BaseProcessor):
             dollar_sign = line.get_dollar_sign()
             indent = line.get_indent()
 
-            # If years found, extract years and delete useless lines before years
-            if not got_years and extract_date.search(label):
-                matches = year_pattern.findall(label)
-                years = [int(y) for y in matches]
-                got_years = True
-                new_fs = FinancialStatement()
-                if self.debug:
-                    print('CAPTURED YEARS:', years)
-                continue
-
-            new_fs.add_years(years)
+            new_fs.add_years(self.years)
             new_fs.add_type(fs_type)
             # End detected and line does not match end regex. Exclude useless lines
             if end_collection and not end.match(label):
@@ -639,12 +664,11 @@ class OcrProcessor(BaseProcessor):
                     closest_idx = np.argmin(distances)
                     assigned_vals[closest_idx] = val_num
 
-
                 # add data to new line item obj
                 new_line_item.add_label(label)
                 new_fs.add_line_item(new_line_item)
                 # Fill in values for each expected year. Pad with 0s if necessary
-                for idx, year in enumerate(years):
+                for idx, year in enumerate(self.years):
                     value = assigned_vals[idx] if assigned_vals[idx] is not None else 0
                     new_line_item.add_data(year, value)
                 if self.debug:
@@ -661,8 +685,6 @@ class OcrProcessor(BaseProcessor):
                 new_line_item.add_label(label)
                 new_fs.add_line_item(new_line_item)
 
-        if not got_years and self.debug:
-            print('WARNING COULD NOT FIND YEARS.')
         self.fs = new_fs
         self.state = State.COMPLETED
 

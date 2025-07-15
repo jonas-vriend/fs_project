@@ -17,15 +17,16 @@
 
 ## BS Problems Im aware of:
 - Apple 2015: OCR doesnt catch the 0 in current portion of term debt.
-- Apple 2015: Date and FYE line too close so they merge and dont get caught by date regex. Tweaking y threshold causes other financial statemnts to break - Likely need to make date detection regex more lenient
 - Apple 2021: OCR splits the 26 off of FYE line - not catastrophic since this line isnt used but can forsee this happening to important values so want to avoid this
 - GE 18: Misses single digit preferred stock vals: 6, 6
 - GE18-24 cant find years
 - GE 20 - underscore 0s logic struggling with densely packed text
+- GE 22 - merged junk to final line
 - Accenture 24 - 2 places with dates. Obvious solution would be breaking up build_fs into two functions. finding year should factor in column alignment
+- BH 24: auditors are idiots and didnt label the summing line. Maybe detect if a line has an empty label and default to ''
 ## IS Problems Im aware of:
 - UHG 2018: Really bad hallcuination where $ treated as 8. More evidence that I should probably split preprocess_text into two functions 
-
+- GE 18: doesnt compile. issue with detect_underscore 0s expecting ints somewhere and getting numpy floats
 ## Starting Development
 
 We need to install the pyenv package, which is a Python Version Manager. If not used, you can run into errors because some packages are dependent on specific of python.
@@ -80,4 +81,4 @@ Moved some logic from build_fs to preprocess_text. Edge cases exist where number
 
 Cast values as floats instead of ints in build_fs since values with decimal places were getting treated as 0s.
 
-
+Improved date capture logic and moved it to preprocess_text
