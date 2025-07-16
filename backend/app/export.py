@@ -1,4 +1,3 @@
-
 import csv
 import openpyxl as xl
 import openpyxl.styles as style
@@ -58,7 +57,7 @@ def export_fs_as_xlsx(fs: FinancialStatement, export_filename):
     wb.save(output_file)
     print(f"Excel file saved as: {output_file}")
 
-def format_line_items(ws_new, years, line_items, start_row=4, start_col=2):
+def format_line_items(ws_new, years, line_items, start_row=4, start_col=2): #TODO: currently only supports BS
     for i, line in enumerate(line_items):
         row = start_row + i
         label, values, dollar_sign, indent_level = line.get_all()
