@@ -123,8 +123,6 @@ def format_line_items(ws_new, years, line_items, fs_type, start_row=4, start_col
     ws_new.column_dimensions[col_letter].width = max_label_length * LABEL_COL_SCALE_FACTOR
 
     # Add balance check
-    print(fs_type)
-    print(len(s_type_2))
     if fs_type == "BALANCE_SHEET" and len(s_type_2) == 2:
         ta = s_type_2[0] + start_row
         tlse = s_type_2[1] + start_row
@@ -150,11 +148,6 @@ def build_header(ws_new, years, fs: FinancialStatement, start_row=1, start_col=1
                 col = start_col + j
                 cell = ws_new.cell(row=row, column=col)
                 cell.fill = BLACK_FILL
-
-            # Add company name in yellow
-        company_name = ws_new.cell(row=start_row, column=start_col + 1, value=' ADD COMPANY NAME')
-        company_name.fill = YELLOW_FILL
-        company_name.font = style.Font(name="Helvetica Neue", size=24, underline="single")
 
         # Add Financial Statement type
         row = start_row + 1
