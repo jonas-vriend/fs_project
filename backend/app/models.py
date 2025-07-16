@@ -104,7 +104,7 @@ class LineItem:
         return self.summing_range
 
     def get_all(self):
-        return self.label, self.data, self.dollar_sign, self.indent
+        return self.label, self.data, self.dollar_sign, self.indent, self.summing_type, self.summing_range
 
     def __str__(self):
         data_pairs = [(year, self.data[year]) for year in sorted(self.data.keys())]

@@ -704,7 +704,7 @@ class OcrProcessor(BaseProcessor):
 
         for i, line in reversed_lines:
             print()
-            label, data, _, _ = line.get_all()
+            label, data, _, _, _, _= line.get_all()
 
 
             if not data or year not in data:

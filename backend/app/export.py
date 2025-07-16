@@ -9,8 +9,15 @@ BLACK_FILL = style.PatternFill(fill_type="solid", start_color="FF000000", end_co
 YELLOW_FILL = style.PatternFill(fill_type="solid", start_color="FFFFFF00", end_color="FFFFFF00")
 HEADER_FONT = style.Font(name="Helvetica Neue", size=10, color="FFFFFF", bold=True)
 BLUE_FONT = style.Font(name="Helvetica Neue", size=8, color="0070c0")
+BLACK_FONT = style.Font(name="Helvetica Neue", size=8, color="000000")
 RED_ITALIC_FONT = style.Font(name="Helvetica Neue", size=8, color="FF0000", italic=True)
 LABEL_FONT = style.Font(name="Helvetica Neue", size=8)
+
+THIN_LINE = style.Side(border_style="thin", color="000000")
+DOUBLE_LINE = style.Side(border_style="double", color="000000")
+SUBTOTAL_BORDER= style.Border(top=THIN_LINE)
+TOTAL_BORDER = style.Border(top=THIN_LINE, bottom=DOUBLE_LINE)
+
 
 
 def export_fs_as_csv(fs: FinancialStatement, export_filename):
@@ -41,15 +48,15 @@ def export_fs_as_xlsx(fs: FinancialStatement, export_filename):
     export_filename = export_filename + ".xlsx"
     wb = xl.Workbook()
     del wb['Sheet']
-    sheet_name = fs.get_type()
-    ws_new = wb.create_sheet(title=sheet_name)
+    fs_type = fs.get_type()
+    ws_new = wb.create_sheet(title=fs_type)
 
 
     # Run formatting
     lines = fs.get_lines()
     years = fs.get_years()
 
-    format_line_items(ws_new, years, lines)
+    format_line_items(ws_new, years, lines, fs_type)
     build_header(ws_new, years, fs)
 
     # Save to file
@@ -57,10 +64,13 @@ def export_fs_as_xlsx(fs: FinancialStatement, export_filename):
     wb.save(output_file)
     print(f"Excel file saved as: {output_file}")
 
-def format_line_items(ws_new, years, line_items, start_row=4, start_col=2): #TODO: currently only supports BS
+def format_line_items(ws_new, years, line_items, fs_type, start_row=4, start_col=2): #TODO: currently only supports BS
+
+    s_type_2 = []
+
     for i, line in enumerate(line_items):
         row = start_row + i
-        label, values, dollar_sign, indent_level = line.get_all()
+        label, values, dollar_sign, indent_level, summing_type, summing_range = line.get_all()
 
         # Add label cell
         cell = ws_new.cell(row=row, column=start_col, value=label)
@@ -72,38 +82,60 @@ def format_line_items(ws_new, years, line_items, start_row=4, start_col=2): #TOD
         else:
             cell.alignment = style.Alignment(horizontal="left", indent=indent_level)
 
+        if summing_type == 2:
+            s_type_2.append(line_items.index(line))
+
         # Add values
         for j, year in enumerate(years):
             val = values.get(year, '')
             col = start_col + 1 + j
-            val_cell = ws_new.cell(row=row, column=col, value=val)
-            val_cell.font = BLUE_FONT
+            if summing_type == 0:
+                val_cell = ws_new.cell(row=row, column=col, value=val)
+                val_cell.font = BLUE_FONT
 
-            if isinstance(val, int):
-                if dollar_sign:
-                    val_cell.number_format = '_("$"* #,##0_);_("$"* (#,##0)'
-                else:
-                    val_cell.number_format = '#,##0;(#,##0)'
             else:
-                val_cell.number_format = 'General'
-    
-    # Add balance check
-    row += 2
-    balance_check = ws_new.cell(row=row, column=start_col, value='Balance Check')
-    balance_check.font = RED_ITALIC_FONT
+                if summing_range:
+                    included_rows = [idx + start_row for idx in summing_range]
+                    col_letter = utils.get_column_letter(col)
+                    formula = f"=SUM({','.join(f'{col_letter}{r}' for r in included_rows)})"
+                    val = formula
+                val_cell = ws_new.cell(row=row, column=col, value=val)
+                val_cell.font = BLACK_FONT
 
-    for i, year in enumerate(years):
-        col = start_col + 1 + i
-        col_letter = utils.get_column_letter(col)
-        formula = f"={col_letter}35 - {col_letter}15"  # Replace later with dynamic logic
-        balance_val = ws_new.cell(row=row, column=col)
-        balance_val.value = formula
-        balance_val.font = RED_ITALIC_FONT
+                if summing_type == 1:
+                    val_cell.border = SUBTOTAL_BORDER
+                elif summing_type == 2:
+                    val_cell.border = TOTAL_BORDER
+                
+            if dollar_sign:
+                val_cell.number_format = '_("$"* #,##0_);_("$"* (#,##0)'
+            else:
+                val_cell.number_format = '#,##0;(#,##0)'
+
+
+    # Add balance check
+    print(fs_type)
+    print(len(s_type_2))
+    if fs_type == "BALANCE_SHEET" and len(s_type_2) == 2:
+        ta = s_type_2[0] + start_row
+        tlse = s_type_2[1] + start_row
+        row += 2
+        balance_check = ws_new.cell(row=row, column=start_col, value='Balance Check')
+        balance_check.font = RED_ITALIC_FONT
+
+        for i, year in enumerate(years):
+            col = start_col + 1 + i
+            col_letter = utils.get_column_letter(col)
+            formula = f"={col_letter}{tlse} - {col_letter}{ta}"
+            balance_val = ws_new.cell(row=row, column=col)
+            balance_val.value = formula
+            balance_val.font = RED_ITALIC_FONT
 
 
 def build_header(ws_new, years, fs: FinancialStatement, start_row=1, start_col=2):
         # Fill black background
-        for i in range(3):
+        HEADER_LENGTH = 3
+        for i in range(HEADER_LENGTH):
             for j in range(len(years) + 1):
                 row = start_row + i
                 col = start_col + j
@@ -111,7 +143,7 @@ def build_header(ws_new, years, fs: FinancialStatement, start_row=1, start_col=2
                 cell.fill = BLACK_FILL
 
             # Add company name in yellow
-        company_name = ws_new.cell(row=start_row, column=start_col, value='COMPANY NAME')
+        company_name = ws_new.cell(row=start_row, column=start_col, value=' ADD COMPANY NAME')
         company_name.fill = YELLOW_FILL
         company_name.font = style.Font(name="Helvetica Neue", size=24, underline="single")
 
