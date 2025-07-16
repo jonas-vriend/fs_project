@@ -50,6 +50,8 @@ def export_fs_as_xlsx(fs: FinancialStatement, export_filename):
     del wb['Sheet']
     fs_type = fs.get_type()
     ws_new = wb.create_sheet(title=fs_type)
+    ws_new.sheet_view.showGridLines = False
+    ws_new.column_dimensions["A"].width = 1
 
 
     # Run formatting
@@ -66,11 +68,15 @@ def export_fs_as_xlsx(fs: FinancialStatement, export_filename):
 
 def format_line_items(ws_new, years, line_items, fs_type, start_row=4, start_col=2): #TODO: currently only supports BS
 
+    LABEL_COL_SCALE_FACTOR = 0.8
     s_type_2 = []
 
+    max_label_length = 0
     for i, line in enumerate(line_items):
         row = start_row + i
         label, values, dollar_sign, indent_level, summing_type, summing_range = line.get_all()
+        if len(label) > max_label_length:
+            max_label_length = len(label)
 
         # Add label cell
         cell = ws_new.cell(row=row, column=start_col, value=label)
@@ -112,6 +118,9 @@ def format_line_items(ws_new, years, line_items, fs_type, start_row=4, start_col
             else:
                 val_cell.number_format = '#,##0;(#,##0)'
 
+    # Dynamicallty set label width
+    col_letter = utils.get_column_letter(start_col)
+    ws_new.column_dimensions[col_letter].width = max_label_length * LABEL_COL_SCALE_FACTOR
 
     # Add balance check
     print(fs_type)
@@ -132,18 +141,18 @@ def format_line_items(ws_new, years, line_items, fs_type, start_row=4, start_col
             balance_val.font = RED_ITALIC_FONT
 
 
-def build_header(ws_new, years, fs: FinancialStatement, start_row=1, start_col=2):
+def build_header(ws_new, years, fs: FinancialStatement, start_row=1, start_col=1):
         # Fill black background
         HEADER_LENGTH = 3
         for i in range(HEADER_LENGTH):
-            for j in range(len(years) + 1):
+            for j in range(len(years) + 2):
                 row = start_row + i
                 col = start_col + j
                 cell = ws_new.cell(row=row, column=col)
                 cell.fill = BLACK_FILL
 
             # Add company name in yellow
-        company_name = ws_new.cell(row=start_row, column=start_col, value=' ADD COMPANY NAME')
+        company_name = ws_new.cell(row=start_row, column=start_col + 1, value=' ADD COMPANY NAME')
         company_name.fill = YELLOW_FILL
         company_name.font = style.Font(name="Helvetica Neue", size=24, underline="single")
 
@@ -151,13 +160,13 @@ def build_header(ws_new, years, fs: FinancialStatement, start_row=1, start_col=2
         row = start_row + 1
         fs_type = fs.get_type()
         label = 'Consolidated Balance Sheets' if fs_type == 'BALANCE_SHEET' else 'Consolidated Income Statements'
-        type_cell = ws_new.cell(row=row, column=start_col, value=label)
+        type_cell = ws_new.cell(row=row, column=start_col + 1, value=label)
         type_cell.font = HEADER_FONT
 
         # Add Years
         for i, year in enumerate(years):
             row = start_row + 2
-            col = start_col + 1 + i
+            col = start_col + 2 + i
             year_cell = ws_new.cell(row=row, column=col, value=year)
             year_cell.alignment = style.Alignment(horizontal="center")
             year_cell.font = HEADER_FONT
