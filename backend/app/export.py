@@ -95,10 +95,12 @@ def format_line_items(ws_new, years, line_items, fs_type, start_row=4, start_col
         for j, year in enumerate(years):
             val = values.get(year, '')
             col = start_col + 1 + j
+            # Hard code blue font
             if summing_type == 0:
                 val_cell = ws_new.cell(row=row, column=col, value=val)
                 val_cell.font = BLUE_FONT
 
+            # totals and subtotals given summing formulas, black font, borders
             else:
                 if summing_range:
                     included_rows = [idx + start_row for idx in summing_range]
@@ -112,13 +114,13 @@ def format_line_items(ws_new, years, line_items, fs_type, start_row=4, start_col
                     val_cell.border = SUBTOTAL_BORDER
                 elif summing_type == 2:
                     val_cell.border = TOTAL_BORDER
-                
+            # Dollar signs assigned to end and beinning of both A and L + SE
             if dollar_sign:
                 val_cell.number_format = '_("$"* #,##0_);_("$"* (#,##0)'
             else:
                 val_cell.number_format = '#,##0;(#,##0)'
 
-    # Dynamicallty set label width
+    # Dynamicallty set label width based on max label length
     col_letter = utils.get_column_letter(start_col)
     ws_new.column_dimensions[col_letter].width = max_label_length * LABEL_COL_SCALE_FACTOR
 

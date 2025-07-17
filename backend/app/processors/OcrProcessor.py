@@ -691,6 +691,9 @@ class OcrProcessor(BaseProcessor):
 
     # TODO: Currently only supports BS. Also isnt popping everything its supposed to. still buggy
     def add_summing_lines(self):
+
+        assert self.state == State.COMPLETED
+    
         total_stack = [] # stack holding totals and subtotals 
 
         tlse = re.compile(r'(?i)total.*liabilit(?:y|ies).*equity')
@@ -705,7 +708,6 @@ class OcrProcessor(BaseProcessor):
         for i, line in reversed_lines:
             print()
             label, data, _, _, _, _= line.get_all()
-
 
             if not data or year not in data:
                 continue
@@ -771,9 +773,8 @@ class OcrProcessor(BaseProcessor):
                         top_line.add_summing_range(i)
 
                         print(f'tracking_sum now: {tracking_sum}')
+
                     else:
-
-
                         print('WARNING. Stack is None')
                         tracking_sum = None
 
