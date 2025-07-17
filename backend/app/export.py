@@ -19,7 +19,6 @@ SUBTOTAL_BORDER= style.Border(top=THIN_LINE)
 TOTAL_BORDER = style.Border(top=THIN_LINE, bottom=DOUBLE_LINE)
 
 
-
 def export_fs_as_csv(fs: FinancialStatement, export_filename):
         """
         Exports FinancialStatement object to CSV
@@ -65,6 +64,7 @@ def export_fs_as_xlsx(fs: FinancialStatement, export_filename):
     output_file = "formatted_output.xlsx"
     wb.save(output_file)
     print(f"Excel file saved as: {output_file}")
+
 
 def format_line_items(ws_new, years, line_items, fs_type, start_row=4, start_col=2): #TODO: currently only supports BS
 

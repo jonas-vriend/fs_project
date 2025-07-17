@@ -688,7 +688,7 @@ class OcrProcessor(BaseProcessor):
         self.fs = new_fs
         self.state = State.COMPLETED
 
-    # TODO: Currently only supports BS. Also isnt popping everything its supposed to. still buggy
+    # TODO: Currently only supports BS. Still buggy
     def add_summing_lines(self):
 
         assert self.state == State.COMPLETED
@@ -698,64 +698,81 @@ class OcrProcessor(BaseProcessor):
         tlse = re.compile(r'(?i)total.*liabilit(?:y|ies).*equity')
         ta = re.compile(r'(?i)total assets')
 
+        # Reverse lines to access TL+SE first
         year = self.years[0]
         line_items = list(enumerate(self.fs.lines))
         reversed_lines = line_items[::-1]
 
-        tracking_sum = None
+        tracking_sum = None # Tracking sum is the remaining sum of the most recent total encountered and gets decreased by each number encountered until 0
 
         for i, line in reversed_lines:
-            print()
-            label, data, _, _, _, _= line.get_all()
 
+            # Acces data in line item. If heading without values, skip
+            label, data, _, _, _, _= line.get_all()
             if not data or year not in data:
                 continue
-
             val = data[year]
 
+            # Encountered grand total
             if tlse.match(label) or ta.match(label):
 
+                # If there are previous totals in the stack with tracking sums of 0, pop them
                 for _, _, old_tsum, old in total_stack[::-1]:
                     if old_tsum == 0:
                         total_stack.pop()
-                        print(f'total complete: {old.get_label()}| range: {old.get_summing_range()}')
+                        if self.debug:
+                            print(f'total complete: {old.get_label()}| range: {old.get_summing_range()}')
 
+                # define summing type for detected gradn total and add it to the stack
                 line.add_summing_type(2)
                 tracking_sum = val
                 original = val
                 total_stack.append((i, original, tracking_sum, line))
+                
+                if self.debug:
+                    print(f'found {label} @ {i} | val: {val}')
 
-                print(f'found {label} @ {i} | val: {val}')
+            # Encountered subtotal
             elif 'total' in label.lower():
+                # if there is another total in the stack, subtotal should be included in its summing range
                 if total_stack:
                     prev_i, prev_original, prev_tsum, prev = total_stack.pop()
                     prev.add_summing_range(i)
                     prev_tsum -= val
                     total_stack.append((prev_i, prev_original, prev_tsum, prev))
 
+                # If there are previous totals in the stack with tracking sums of 0, pop them
                 for _, _, old_tsum, old in total_stack[::-1]:
                     if old_tsum == 0:
                         total_stack.pop()
-                        print(f'total complete: {old.get_label()}| range: {old.get_summing_range()}')
-                    
+                        if self.debug:
+                            print(f'total complete: {old.get_label()}| range: {old.get_summing_range()}')
+
+                # add summing type to subtotal. Append it to the stack
                 line.add_summing_type(1)
                 tracking_sum = val
                 original = val
                 total_stack.append((i, original, tracking_sum, line))
 
-                print(f'found {label} @ {i} | val: {val}')
-                print(f'adding to summing range of {prev.get_label()}')
+                if self.debug:
+                    print(f'found {label} @ {i} | val: {val}')
+                    print(f'adding to summing range of {prev.get_label()}')
 
+            # Non total encountered
             elif tracking_sum is not None:
 
-                print(f'tracking sum before check: {tracking_sum}')
+                # Update tracking sum and summing range if tracking sum isnt 0 or if a line = 0 
+                if self.debug:
+                    print(f'tracking sum before check: {tracking_sum}')
                 if (not tracking_sum == 0) or val == 0:
                     tracking_sum -= val
                     old_i, original, _, old_line = total_stack.pop()
                     old_line.add_summing_range(i)
                     total_stack.append((old_i, original, tracking_sum, old_line))
-                    print(f'tracking_sum now: {tracking_sum}')
+                    if self.debug:
+                        print(f'tracking_sum now: {tracking_sum}')
 
+                # tracking sum is 0 and val isnt 0. Time to pop
                 else:
                     _, original, _, old = total_stack.pop()
                     old_label = old.get_label()
@@ -763,21 +780,24 @@ class OcrProcessor(BaseProcessor):
                     print(f'total complete: {old_label}| range: {old.get_summing_range()}')
                     if total_stack:
                         _, prev_original, _, _ = total_stack[-1]
-
-                        print(f'prev sum: {prev_original}')
                         tracking_sum = prev_original - original
-                        print(f'tracking_sum now: {tracking_sum}')
+
+                        if self.debug:
+                            print(f'prev sum: {prev_original}')
+                            print(f'tracking_sum now: {tracking_sum}')
 
                         # need to factor the val that caused the if statement to eval to false:
                         tracking_sum -= val
                         _, _,  _, top_line = total_stack[-1]
                         top_line.add_summing_range(i)
 
-                        print(f'tracking_sum now: {tracking_sum}')
+                        if self.debug:
+                            print(f'tracking_sum now: {tracking_sum}')
 
                     else:
-                        print('WARNING. Stack is None')
-                        tracking_sum = None
+                        if self.debug:
+                            print('WARNING. Stack is None')
+                            tracking_sum = None
 
         _, _, final_tsum, final_line = total_stack.pop()
         if not final_tsum == 0 and self.debug: 
