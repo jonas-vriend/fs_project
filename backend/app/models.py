@@ -2,16 +2,16 @@ from enum import Enum, auto
 
 class RawLine:
     def __init__(self):
-        self.text = None
-        self.text_x_coords = (None, None)
-        self.dollar_sign = False
-        self.indent = 0
-        self.y_vals = (None, None)
+        self.label = None #text of the line 
+        self.text_x_coords = (None, None) # min and max x of the bounding box 
+        self.dollar_sign = False # aesthetically does it need a dollar sign 
+        self.indent = 0 # how indented is it (step size of 1)
+        self.y_vals = (None, None) # min and max y of the bounding box
         self.vals = []  # List of (financial value, x_coord) pairs
 
-    def add_text(self, text):
-        assert isinstance(text, str), "Text must be a string"
-        self.text = text
+    def add_label(self, label):
+        assert isinstance(label, str), "Text must be a string"
+        self.label = label
 
     def add_x_coords(self, coord1, coord2):
         self.text_x_coords = (float(coord1), float(coord2))
@@ -29,7 +29,7 @@ class RawLine:
         self.y_vals = (y1, y2)
 
     def get_text(self):
-        return self.text
+        return self.label
 
     def get_x_coords(self):
         return self.text_x_coords
@@ -47,10 +47,10 @@ class RawLine:
         return self.y_vals
 
     def get_all(self):
-        return self.text, self.text_x_coords, self.vals, self.dollar_sign, self.indent, self.y_vals
+        return self.label, self.text_x_coords, self.vals, self.dollar_sign, self.indent, self.y_vals
 
     def __str__(self):
-        return f"TEXT: {self.text} | COORDS: {self.text_x_coords} | VALS: {self.vals}"
+        return f"TEXT: {self.label} | COORDS: {self.text_x_coords} | VALS: {self.vals}"
 
 
 class LineItem:

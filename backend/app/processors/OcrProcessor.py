@@ -106,7 +106,7 @@ class OcrProcessor(BaseProcessor):
             ocr_output = reader.readtext(
                 np.array(img), 
                 width_ths=0.5,  # Controls how aggressively EasyOCR merges text into the same box (0.5 results in many boxes) (TODO)
-                text_threshold=0.55   # Allows text with lower score to be captured. Lowering this improves recongition of single character values but also makes OCR hallucinate more (TODO)
+                text_threshold=0.55   # Allows text with   score to be captured. Lowering this improves recongition of single character values but also makes OCR hallucinate more (TODO)
             )
 
             # Save OCR results to cache for future runs
@@ -288,7 +288,7 @@ class OcrProcessor(BaseProcessor):
 
             else:
                 # Finalize current line
-                new_line.add_text(start_line)
+                new_line.add_label(start_line)
                 new_line.add_x_coords(current_x1, x2)
                 new_line.add_y_vals(start_y1, start_y2)
                 if self.debug:
@@ -305,7 +305,7 @@ class OcrProcessor(BaseProcessor):
 
         # Handle last line
         if start_line:
-            new_line.add_text(start_line)
+            new_line.add_label(start_line)
             new_line.add_x_coords(current_x1, x2)
             new_line.add_y_vals(start_y1, start_y2)
             if self.debug:
@@ -568,7 +568,7 @@ class OcrProcessor(BaseProcessor):
                         prev.vals = vals
                     if d_sign:
                         prev.add_dollar_sign()
-                    prev.add_text(full_label)
+                    prev.add_label(full_label)
                 else:
                     # failed indentation check
                     if self.debug:
