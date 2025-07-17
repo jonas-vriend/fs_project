@@ -609,7 +609,6 @@ class OcrProcessor(BaseProcessor):
         new_fs.add_type(fs_type)
         end = self.get_end(fs_type)
 
-
         for line in self.merged_lines:
             label = line.get_text()
             label = label.strip('.').strip('_')  # for formats where labels and vals separated with periods
@@ -715,6 +714,7 @@ class OcrProcessor(BaseProcessor):
             val = data[year]
 
             if tlse.match(label) or ta.match(label):
+
                 for _, _, old_tsum, old in total_stack[::-1]:
                     if old_tsum == 0:
                         total_stack.pop()
@@ -727,19 +727,21 @@ class OcrProcessor(BaseProcessor):
 
                 print(f'found {label} @ {i} | val: {val}')
             elif 'total' in label.lower():
+                if total_stack:
+                    prev_i, prev_original, prev_tsum, prev = total_stack.pop()
+                    prev.add_summing_range(i)
+                    prev_tsum -= val
+                    total_stack.append((prev_i, prev_original, prev_tsum, prev))
+
                 for _, _, old_tsum, old in total_stack[::-1]:
                     if old_tsum == 0:
                         total_stack.pop()
                         print(f'total complete: {old.get_label()}| range: {old.get_summing_range()}')
-
-                if total_stack:
-                    _, _, _, prev = total_stack[-1]
-                    prev.add_summing_range(i)
+                    
                 line.add_summing_type(1)
                 tracking_sum = val
                 original = val
                 total_stack.append((i, original, tracking_sum, line))
-
 
                 print(f'found {label} @ {i} | val: {val}')
                 print(f'adding to summing range of {prev.get_label()}')
@@ -750,10 +752,9 @@ class OcrProcessor(BaseProcessor):
                 if (not tracking_sum == 0) or val == 0:
                     tracking_sum -= val
                     old_i, original, _, old_line = total_stack.pop()
+                    old_line.add_summing_range(i)
                     total_stack.append((old_i, original, tracking_sum, old_line))
                     print(f'tracking_sum now: {tracking_sum}')
-                    _, _, _, top_line = total_stack[-1]
-                    top_line.add_summing_range(i)
 
                 else:
                     _, original, _, old = total_stack.pop()
@@ -778,10 +779,17 @@ class OcrProcessor(BaseProcessor):
                         print('WARNING. Stack is None')
                         tracking_sum = None
 
-        print(f'remaining stack: {total_stack}')
-        for line in self.fs.lines:
-            if not line.get_summing_type() == 0:
-                print(f'Label: {line.get_label()} | Range: {line.get_summing_range()}')
+        _, _, final_tsum, final_line = total_stack.pop()
+        if not final_tsum == 0 and self.debug: 
+            print(f'Warning! Final tracking sum ≠ 0: {final_tsum} Line: {final_line.get_label()}')
+        if total_stack and self.debug:
+            print('Warning! Unexpected elements in total_stack!')
+            print(f'remaining stack: {total_stack}')
+        if self.debug:
+            print('\nCollected summing ranges:')
+            for line in self.fs.lines:
+                if not line.get_summing_type() == 0:
+                    print(f'Label: {line.get_label()} | Range: {line.get_summing_range()}')
 
 
     def debug_output(self, val_x_thresh=75):

@@ -110,7 +110,6 @@ class LineItem:
         data_pairs = [(year, self.data[year]) for year in sorted(self.data.keys())]
         return f'Line item: {self.label} | Values: {data_pairs}'
 
-
 class FinancialStatement:
     def __init__(self):
         self.lines = []
