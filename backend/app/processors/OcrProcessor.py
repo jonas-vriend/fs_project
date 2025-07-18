@@ -724,7 +724,7 @@ class OcrProcessor(BaseProcessor):
                             print(f'total complete: {old.get_label()}| range: {old.get_summing_range()}')
 
                 # define summing type for detected gradn total and add it to the stack
-                line.add_summing_type(2)
+                line.add_summing_type(3)
                 tracking_sum = val
                 original = val
                 total_stack.append((i, original, tracking_sum, line))
@@ -734,22 +734,32 @@ class OcrProcessor(BaseProcessor):
 
             # Encountered subtotal
             elif 'total' in label.lower():
-                # if there is another total in the stack, subtotal should be included in its summing range
-                if total_stack:
-                    prev_i, prev_original, prev_tsum, prev = total_stack.pop()
-                    prev.add_summing_range(i)
-                    prev_tsum -= val
-                    total_stack.append((prev_i, prev_original, prev_tsum, prev))
+                # Assigns summing type to subtotal
+                if 'current' in label.lower():
+                    line.add_summing_type(1)
+                else:
+                    line.add_summing_type(2)
 
-                # If there are previous totals in the stack with tracking sums of 0, pop them
-                for _, _, old_tsum, old in total_stack[::-1]:
-                    if old_tsum == 0:
+                # Iterate through previous entries in the stack to determine if they are ready to be popped
+                for _, _, prev_tsum, prev in total_stack[::-1]:
+                    if prev_tsum == 0:
                         total_stack.pop()
                         if self.debug:
-                            print(f'total complete: {old.get_label()}| range: {old.get_summing_range()}')
+                            print(f'total complete: {prev.get_label()}| range: {prev.get_summing_range()}')
+                        continue
 
-                # add summing type to subtotal. Append it to the stack
-                line.add_summing_type(1)
+                    # A previous entry is higher in the summing hierarchy. Include current line in its summing range
+                    if prev.get_summing_type() > line.get_summing_type():
+                        prev_i, prev_original, prev_tsum, prev = total_stack.pop()
+                        prev.add_summing_range(i)
+                        prev_tsum -= val
+                        if prev_tsum == 0 and self.debug:
+                            print(f'total complete: {prev.get_label()}| range: {prev.get_summing_range()}')
+                        else:
+                            total_stack.append((prev_i, prev_original, prev_tsum, prev))
+                        break
+                    
+                # Append subtotal to the stack
                 tracking_sum = val
                 original = val
                 total_stack.append((i, original, tracking_sum, line))
@@ -776,8 +786,8 @@ class OcrProcessor(BaseProcessor):
                 else:
                     _, original, _, old = total_stack.pop()
                     old_label = old.get_label()
-
-                    print(f'total complete: {old_label}| range: {old.get_summing_range()}')
+                    if self.debug:
+                        print(f'total complete: {old_label}| range: {old.get_summing_range()}')
                     if total_stack:
                         _, prev_original, _, _ = total_stack[-1]
                         tracking_sum = prev_original - original
@@ -855,4 +865,3 @@ class OcrProcessor(BaseProcessor):
             export_fs_as_csv(self.fs, self.export_filename)
         elif(format == Format.XLSX):
             export_fs_as_xlsx(self.fs, self.export_filename)
-

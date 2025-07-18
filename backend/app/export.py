@@ -15,7 +15,7 @@ LABEL_FONT = style.Font(name="Helvetica Neue", size=8)
 
 THIN_LINE = style.Side(border_style="thin", color="000000")
 DOUBLE_LINE = style.Side(border_style="double", color="000000")
-SUBTOTAL_BORDER= style.Border(top=THIN_LINE)
+SUBTOTAL_BORDER = style.Border(top=THIN_LINE)
 TOTAL_BORDER = style.Border(top=THIN_LINE, bottom=DOUBLE_LINE)
 
 
@@ -83,12 +83,13 @@ def format_line_items(ws_new, years, line_items, fs_type, start_row=4, start_col
         cell.font = LABEL_FONT
 
         # Set alignment: center if all caps heading, else indent
-        if label.isupper() and label.replace(" ", "").isalpha():
+        cleaned = label.replace(":", "").replace(" ", "").replace("'", "")
+        if cleaned.isupper() and cleaned.isalpha():
             cell.alignment = style.Alignment(horizontal="center", indent=0)
         else:
             cell.alignment = style.Alignment(horizontal="left", indent=indent_level)
 
-        if summing_type == 2:
+        if summing_type == 3:
             s_type_2.append(line_items.index(line))
 
         # Add values
@@ -110,9 +111,9 @@ def format_line_items(ws_new, years, line_items, fs_type, start_row=4, start_col
                 val_cell = ws_new.cell(row=row, column=col, value=val)
                 val_cell.font = BLACK_FONT
 
-                if summing_type == 1:
+                if summing_type in (1,2):
                     val_cell.border = SUBTOTAL_BORDER
-                elif summing_type == 2:
+                elif summing_type == 3:
                     val_cell.border = TOTAL_BORDER
             # Dollar signs assigned to end and beinning of both A and L + SE
             if dollar_sign:
@@ -131,7 +132,6 @@ def format_line_items(ws_new, years, line_items, fs_type, start_row=4, start_col
         row += 2
         balance_check = ws_new.cell(row=row, column=start_col, value='Balance Check')
         balance_check.font = RED_ITALIC_FONT
-
         for i, year in enumerate(years):
             col = start_col + 1 + i
             col_letter = utils.get_column_letter(col)

@@ -15,18 +15,21 @@
 - logic that uses y pos to defend against values being split by OCR - would prefer to have better ocr
 - Add FYE Line, company name, fs_type to excel output
 
-## BS Problems Im aware of:
-- Apple 2015: OCR doesnt catch the 0 in current portion of term debt.
-- Apple 2021: OCR splits the 26 off of FYE line - not catastrophic since this line isnt used but can forsee this happening to important values so want to avoid this
-- Amazon 22 - total current assets split into 2 bboxes. evals to 0 
-- GE 18: Misses single digit preferred stock vals: 6, 6
-- GE18-24 cant find years
-- GE 20 - underscore 0s logic struggling with densely packed text
-- GE 22 - merged junk to final line
-- Accenture 24 - 2 places with dates. Obvious solution would be breaking up build_fs into two functions. finding year should factor in column alignment
-- BH 24: auditors are idiots and didnt label the summing line. Maybe detect if a line has an empty label and default to ''
-## IS Problems Im aware of:
-- UHG 2018: Really bad hallcuination where $ treated as 8. More evidence that I should probably split preprocess_text into two functions 
+## Problems Im aware of:
+### OCR ERRORS
+- Apple BS 2015: Doesnt catch the 0 in current portion of term debt.
+- Apple BS 2021: Splits the 26 off of FYE line - not catastrophic since this line isnt used but can forsee this happening to important values so want to avoid this
+- Amazon BS 22 - Total current assets split into 2 bboxes. evals to 0 
+- GE BS  18: Misses single digit preferred stock vals: 6, 6
+- UHG BS 24 - single didigt 9s not captured in common stock line
+- UHG IS 2018: Really bad hallcuination where $ treated as 8.
+
+### LOGIC ERRORS
+- GE BS 20 - underscore 0s logic struggling with densely packed text
+- GE BS 22 - merged junk to final line
+- BH BS 24: auditors are idiots and didnt label the summing line. Maybe detect if a line has an empty label and default to ''
+- HAL BS 24: summing range logic breaks because 'Ccompany Shareholder's equity' is a summing line without total in it. TBH i think this is the auditors fault. Not sure this is actionable
+
 ## Starting Development
 
 We need to install the pyenv package, which is a Python Version Manager. If not used, you can run into errors because some packages are dependent on specific of python.
@@ -48,7 +51,7 @@ pyenv local 3.10.13
 Next, we want to create a virtual environment to create an isolated ecosystem for this packages to exist (and won't have dependecy issues with downloads outside this directory).
 
 ```
-python -m venv env
+python3 -m venv env
 source env/bin/activate
 ```
 

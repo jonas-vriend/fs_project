@@ -55,10 +55,10 @@ class RawLine:
 
 class LineItem:
     def __init__(self):
-        self.label = None
-        self.dollar_sign = False
-        self.indent = 0
-        self.summing_type = 0
+        self.label = None # Text of the line
+        self.dollar_sign = False  # aesthetically does it need a dollar sign 
+        self.indent = 0 # how indented is it (step size of 1)
+        self.summing_type = 0 # indicates whether a  
         self.summing_range = []
         self.data = {}
 
