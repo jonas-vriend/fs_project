@@ -84,7 +84,7 @@ def format_line_items(ws_new, years, line_items, fs_type, start_row=4, start_col
 
         # Set alignment: center if all caps heading, else indent
         cleaned = label.replace(":", "").replace(" ", "").replace("'", "")
-        if cleaned.isupper() and cleaned.isalpha():
+        if cleaned.isupper() and cleaned.isalpha() and not line.get_data():
             cell.alignment = style.Alignment(horizontal="center", indent=0)
         else:
             cell.alignment = style.Alignment(horizontal="left", indent=indent_level)

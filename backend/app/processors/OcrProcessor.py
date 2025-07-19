@@ -67,7 +67,8 @@ class OcrProcessor(BaseProcessor):
         print(self.state)
         assert self.fs is not None and len(self.fs.lines) > 0, "Financial statement build failed: no lines added"
 
-        self.add_summing_lines()
+        if self.fs.type == 'BALANCE_SHEET':
+            self.add_summing_lines()
 
     def get_data(self):
         """
@@ -687,6 +688,7 @@ class OcrProcessor(BaseProcessor):
 
         self.fs = new_fs
         self.state = State.COMPLETED
+
 
     # TODO: Currently only supports BS. Still buggy
     def add_summing_lines(self):
