@@ -20,7 +20,7 @@
 - GE BS  18: Misses single digit preferred stock vals: 6, 6
 - UHG BS 24 - single digit 9s not captured in common stock line
 - UHG IS 2018: Really bad hallcuination where $ treated as 8.
-
+- Hershey BS 24: Accounts receiveable split in two
 ### LOGIC ERRORS
 - GE BS 20 - underscore 0s logic struggling with densely packed text
 - GE BS 22 - merged junk to final line
