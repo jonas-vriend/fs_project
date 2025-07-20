@@ -25,7 +25,6 @@
 - GE BS 20 - underscore 0s logic struggling with densely packed text
 - GE BS 22 - merged junk to final line
 - BH BS 24: auditors are idiots and didnt label the summing line. Maybe detect if a line has an empty label and default to ''
-- HAL BS 24: summing range logic breaks because 'Company Shareholder's equity' is a summing line without total in it. TBH i think this is the auditors fault. Not sure this is actionable
 
 ## Starting Development
 

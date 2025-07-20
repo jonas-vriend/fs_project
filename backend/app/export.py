@@ -89,7 +89,7 @@ def format_line_items(ws_new, years, line_items, fs_type, start_row=4, start_col
         else:
             cell.alignment = style.Alignment(horizontal="left", indent=indent_level)
 
-        if summing_type == 3:
+        if summing_type == 2:
             s_type_2.append(line_items.index(line))
 
         # Add values
@@ -117,9 +117,9 @@ def format_line_items(ws_new, years, line_items, fs_type, start_row=4, start_col
                 val_cell = ws_new.cell(row=row, column=col, value=val)
                 val_cell.font = BLACK_FONT
 
-                if summing_type in (1,2):
+                if summing_type == 1:
                     val_cell.border = SUBTOTAL_BORDER
-                elif summing_type == 3:
+                elif summing_type == 2:
                     val_cell.border = TOTAL_BORDER
             # Dollar signs assigned to end and beinning of both A and L + SE
             if dollar_sign:

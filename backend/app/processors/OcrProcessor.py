@@ -745,7 +745,7 @@ class OcrProcessor(BaseProcessor):
         fs_type = self.fs.fs_type
         tlse = re.compile(r'(?i)total.*liabilit(?:y|ies).*equity')
         ta = re.compile(r'(?i)total assets')
-        ni =  re.compile(r'(?i)^.*net\s+\(?(income|earnings)\)?(?:\s+\(loss\))?.*')
+
         unaccounted_for = []
         year = self.years[0]
 
@@ -765,9 +765,6 @@ class OcrProcessor(BaseProcessor):
                     continue
 
                 line.add_summing_type(1)
-                if fs_type == 'BALANCE_SHEET':
-                    if tlse.match(label) or ta.match(label):
-                        line.add_summing_type(3)
 
                 vals = line.get_data()
                 target = vals[year]
@@ -792,11 +789,15 @@ class OcrProcessor(BaseProcessor):
                     if self.debug:
                         print(f'Warning. Could not find solution for total @ line {line.get_label()}. Treating as regular val')
 
+                if fs_type == 'BALANCE_SHEET':
+                    if tlse.match(label) or ta.match(label):
+                        line.add_summing_type(2)
+                        continue
                 # Update unaccounted for to include total
                 unaccounted_for.append((i, val))
 
         if fs_type == 'INCOME_STATEMENT':
-            self.fs.lines[-1].add_summing_type(3)
+            self.fs.lines[-1].add_summing_type(2)
 
         print('Summing ranges:')
         for line in self.fs.lines:

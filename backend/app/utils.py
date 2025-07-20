@@ -113,6 +113,11 @@ def get_all_subsets(lst):
 
 
 def find_solution(subsets, target=0, off_by_thresh=0):
+    """
+    Takes all subsets of unaccounted for lines, tries all combinations of
+    addition and subtraction of subsets until a solution is found to achieve
+    the target value
+    """
     closest_solution = None
     closest_off_by = float('inf')
 
