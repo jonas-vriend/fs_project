@@ -7,6 +7,8 @@ class RawLine:
         self.dollar_sign = False # aesthetically does it need a dollar sign 
         self.indent = 0 # how indented is it (step size of 1)
         self.y_vals = (None, None) # min and max y of the bounding box
+        self.val_y_vals = [] # List of max y for value bboxes on a given line
+        self.is_total = False  # bool of whether line is total as indicated by summing line above it
         self.vals = []  # List of (financial value, x_coord) pairs
 
     def add_label(self, label):
@@ -27,6 +29,12 @@ class RawLine:
 
     def add_y_vals(self, y1, y2):
         self.y_vals = (y1, y2)
+    
+    def add_val_y_val(self, val):
+        self.val_y_vals.append(val)
+    
+    def set_total(self):
+        self.is_total = True
 
     def get_text(self):
         return self.label
@@ -45,6 +53,9 @@ class RawLine:
     
     def get_y_vals(self):
         return self.y_vals
+    
+    def get_val_y_vals(self):
+        return self.val_y_vals
 
     def get_all(self):
         return self.label, self.text_x_coords, self.vals, self.dollar_sign, self.indent, self.y_vals
@@ -58,8 +69,9 @@ class LineItem:
         self.label = None # Text of the line
         self.dollar_sign = False  # aesthetically does it need a dollar sign 
         self.indent = 0 # how indented is it (step size of 1)
-        self.summing_type = 0 # indicates whether a  
-        self.summing_range = []
+        self.is_total = False
+        self.summing_type = 0  
+        self.summing_range = None
         self.data = {}
 
     def add_label(self, label):
@@ -79,8 +91,11 @@ class LineItem:
     def add_summing_type(self, val):
         self.summing_type = val
 
-    def add_summing_range(self, val):
-        self.summing_range.append(val)
+    def add_summing_range(self, lst):
+        self.summing_range = lst
+    
+    def set_total(self):
+        self.is_total = True
         
     def get_label(self):
         return self.label
@@ -113,10 +128,10 @@ class LineItem:
 class FinancialStatement:
     def __init__(self):
         self.lines = []
-        self.type = None
+        self.fs_type = None
     
-    def add_type(self, type):
-        self.type = type
+    def add_type(self, fs_type):
+        self.fs_type = fs_type
 
     def add_line_item(self, data):
         assert isinstance(data, (LineItem))
@@ -129,7 +144,7 @@ class FinancialStatement:
         return self.lines
     
     def get_type(self):
-        return self.type
+        return self.fs_type
     
     def get_years(self):
         return self.years

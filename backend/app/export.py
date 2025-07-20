@@ -104,9 +104,15 @@ def format_line_items(ws_new, years, line_items, fs_type, start_row=4, start_col
             # totals and subtotals given summing formulas, black font, borders
             else:
                 if summing_range:
-                    included_rows = [idx + start_row for idx in summing_range]
                     col_letter = utils.get_column_letter(col)
-                    formula = f"=SUM({','.join(f'{col_letter}{r}' for r in included_rows)})"
+                    terms = []
+                    for i, is_positive in summing_range:
+                        row_ref = i + start_row
+                        sign = ''
+                        if not is_positive:
+                            sign = '-'
+                        terms.append(f"{sign}{col_letter}{row_ref}")
+                    formula = f"=SUM({','.join(terms)})"
                     val = formula
                 val_cell = ws_new.cell(row=row, column=col, value=val)
                 val_cell.font = BLACK_FONT

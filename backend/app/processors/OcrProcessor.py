@@ -8,7 +8,7 @@ from collections import Counter
 from ..models import RawLine, FinancialStatement, LineItem, State, Format
 from ..export import export_fs_as_csv, export_fs_as_xlsx
 from .base import BaseProcessor
-from ..utils import preprocess_img, get_coords
+from ..utils import preprocess_img, get_coords, get_all_subsets, find_solution
 
 
 ########################### GLOBAL VARIABLES ###################################
@@ -27,6 +27,7 @@ class OcrProcessor(BaseProcessor):
         self.img = None
         self.ocr_output = None
         self.underscore_coords = None
+        self.summing_line_coords = None
         self.col_coords = None
         self.raw_lines = None
         self.merged_lines = None
@@ -56,6 +57,9 @@ class OcrProcessor(BaseProcessor):
 
         if self.underscore_coords:
             self.add_underscore_zeros()
+        if self.summing_line_coords:
+            self.assign_summing_lines()
+
         self.debug_output(val_x_thresh=75)
         self.add_indentation()
 
@@ -67,8 +71,8 @@ class OcrProcessor(BaseProcessor):
         print(self.state)
         assert self.fs is not None and len(self.fs.lines) > 0, "Financial statement build failed: no lines added"
 
-        if self.fs.type == 'BALANCE_SHEET':
-            self.add_summing_lines()
+        self.get_summing_ranges()
+
 
     def get_data(self):
         """
@@ -85,9 +89,10 @@ class OcrProcessor(BaseProcessor):
         assert self.state == State.INIT
 
         # Preprocess the PDF and detect underscore lines and debug overlay path
-        img, underscore_coords = preprocess_img(self.pdf_path, self.debug)
+        img, underscore_coords, summing_line_coords = preprocess_img(self.pdf_path, self.debug)
         self.img = img
         self.underscore_coords = underscore_coords
+        self.summing_line_coords = summing_line_coords
 
         # Create filename for cache 
         image_filename = os.path.splitext(os.path.basename(self.pdf_path))[0]
@@ -177,7 +182,7 @@ class OcrProcessor(BaseProcessor):
             print(f'captured column coords: {self.col_coords}')
 
 
-    def preprocess_text(self, date_x_thresh=200, val_x_thresh=75, y_thresh=50):
+    def preprocess_text(self, date_x_thresh=300, val_x_thresh=75, y_thresh=50):
         """
         -Converts raw OCR output into structured line objects (RawLine), identifying labels and numeric values.
         -Captures dates and removes junk preceding them.
@@ -266,6 +271,7 @@ class OcrProcessor(BaseProcessor):
                             new_line.add_dollar_sign()
                     
                         # Add value and its right x-bound
+                        new_line.add_val_y_val(y1)
                         line_val_coords.append(x2)
                         new_line.add_val(cleaned_text, x2)
                     else:
@@ -331,15 +337,7 @@ class OcrProcessor(BaseProcessor):
     def add_underscore_zeros(self, val_x_thresh=75):
         """
         Inserts '0' values into financial lines where underscores (e.g., "__") were detected in the image.
-
-        Args:
-            lines (list of RawLine): Parsed financial lines with text and value positions.
-            col_coords (list of float): Estimated x-coordinate centers for each year/column.
-            underscore_coords (list of tuples): Coordinates of detected underscore lines (x, y, width, height).
-            debug (bool): If True, prints detailed reasoning for accepting/rejecting candidates.
-            val_x_thresh (int): Max horizontal distance allowed between underscore and column center to count as a match.
         """
-        print(self.state)
         assert self.state == State.PREPROCESSED
         can_num = 0  # Candidate counter for debugging
 
@@ -397,6 +395,51 @@ class OcrProcessor(BaseProcessor):
                         print(f'REJECTING candidate {can_num} with coords x: {rx} y: {y}. Y thresh failed. LINE: {line.get_text()} LINE Y1: {line_y1} LINE Y2: {line_y2}')
 
 
+    def assign_summing_lines(self, y_thresh=40):
+        """
+        Takes summing lines detected by cv2 kernel and assigns them based on y
+        position to mark it as a total
+        """
+        assert self.state == State.PREPROCESSED
+        can_num = 0  # Candidate counter for debugging
+        found_first = False # Flag to skip any lines before first actual line item found
+        top_y = None # First line y val coord. No lines should ever be above here. 
+
+        # get summing line y val
+        for (_, y, _, _) in self.summing_line_coords:
+            can_num += 1
+            if self.debug:
+                print(f'\n=== NEW CANDIDATE: {can_num}===')
+
+            for i, line in enumerate(self.raw_lines):
+                # confirm line has y vals to compare to summing_line candidate.
+                val_y_vals = line.get_val_y_vals()
+                if not val_y_vals:
+                    continue
+                val_y = val_y_vals[0]
+                if not found_first:
+                    top_y = val_y
+                    found_first = True
+
+                # Confirm line y is below first line_item
+                if y > top_y:
+                    # Confirm line y val and val y val are within threshold
+                    if abs(y - val_y) < y_thresh:
+                        # Confirm we havent already identified this line as a total
+                        if not line.is_total:
+                            line.set_total()  # Setting line as total
+                            if self.debug:
+                                print(f'PLACED Candidate {can_num} with Y: {y} at line {line} with Y: {val_y}')
+                            break
+                        elif self.debug:
+                            print(f'ALREADY PLACED Candidate {can_num} with Y: {y} at line {line} with Y: {val_y}')
+            
+        if self.debug:
+            found_totals = [f'\n{line}' for line in self.raw_lines if line.is_total]
+            print('Found totals:')
+            for total in found_totals:
+                print(f'\n{total}')
+                
     def add_indentation(self, x_thresh=50):
         """
         Assigns indentation levels to each RawLine line based on horizontal x-coordinates.
@@ -627,7 +670,10 @@ class OcrProcessor(BaseProcessor):
             new_line_item = LineItem()
             if dollar_sign:
                 new_line_item.add_dollar_sign()
+            if line.is_total:
+                new_line_item.set_total()
             new_line_item.add_indent(indent)
+
 
             # Checks if line item with vals
             vals = line.get_vals()
@@ -690,138 +736,72 @@ class OcrProcessor(BaseProcessor):
         self.state = State.COMPLETED
 
 
-    # TODO: Currently only supports BS. Still buggy
-    def add_summing_lines(self):
-
+    def get_summing_ranges(self, off_by_thresh=0):
+        """
+        Determines indices of line items to add to each subtotal for dynamic summing in final Excel output
+        """
         assert self.state == State.COMPLETED
-    
-        total_stack = [] # stack holding totals and subtotals 
 
+        fs_type = self.fs.fs_type
         tlse = re.compile(r'(?i)total.*liabilit(?:y|ies).*equity')
         ta = re.compile(r'(?i)total assets')
-
-        # Reverse lines to access TL+SE first
+        ni =  re.compile(r'(?i)^.*net\s+\(?(income|earnings)\)?(?:\s+\(loss\))?.*')
+        unaccounted_for = []
         year = self.years[0]
-        line_items = list(enumerate(self.fs.lines))
-        reversed_lines = line_items[::-1]
 
-        tracking_sum = None # Tracking sum is the remaining sum of the most recent total encountered and gets decreased by each number encountered until 0
-
-        for i, line in reversed_lines:
-
-            # Acces data in line item. If heading without values, skip
-            label, data, _, _, _, _= line.get_all()
-            if not data or year not in data:
+        for i, line in enumerate(self.fs.lines):
+            vals = line.get_data()
+            if not vals:
                 continue
-            val = data[year]
 
-            # Encountered grand total
-            if tlse.match(label) or ta.match(label):
+            val = vals[year]
+            if not line.is_total:
+                unaccounted_for.append((i, val))
+            else:
+                label = line.get_label()
+                if not unaccounted_for:
+                    print(f'Warning. total detected @ line {label} but all accounted for. Treating as regular val')
+                    unaccounted_for.append((i, val))
+                    continue
 
-                # If there are previous totals in the stack with tracking sums of 0, pop them
-                for _, _, old_tsum, old in total_stack[::-1]:
-                    if old_tsum == 0:
-                        total_stack.pop()
-                        if self.debug:
-                            print(f'total complete: {old.get_label()}| range: {old.get_summing_range()}')
+                line.add_summing_type(1)
+                if fs_type == 'BALANCE_SHEET':
+                    if tlse.match(label) or ta.match(label):
+                        line.add_summing_type(3)
 
-                # define summing type for detected gradn total and add it to the stack
-                line.add_summing_type(3)
-                tracking_sum = val
-                original = val
-                total_stack.append((i, original, tracking_sum, line))
+                vals = line.get_data()
+                target = vals[year]
                 
-                if self.debug:
-                    print(f'found {label} @ {i} | val: {val}')
+                subsets = get_all_subsets(unaccounted_for)
+                solution = find_solution(subsets, target, off_by_thresh)
 
-            # Encountered subtotal
-            elif 'total' in label.lower():
-                # Assigns summing type to subtotal
-                if 'current' in label.lower():
-                    line.add_summing_type(1)
-                else:
-                    line.add_summing_type(2)
-
-                # Iterate through previous entries in the stack to determine if they are ready to be popped
-                for _, _, prev_tsum, prev in total_stack[::-1]:
-                    if prev_tsum == 0:
-                        total_stack.pop()
-                        if self.debug:
-                            print(f'total complete: {prev.get_label()}| range: {prev.get_summing_range()}')
-                        continue
-
-                    # A previous entry is higher in the summing hierarchy. Include current line in its summing range
-                    if prev.get_summing_type() > line.get_summing_type():
-                        prev_i, prev_original, prev_tsum, prev = total_stack.pop()
-                        prev.add_summing_range(i)
-                        prev_tsum -= val
-                        if prev_tsum == 0 and self.debug:
-                            print(f'total complete: {prev.get_label()}| range: {prev.get_summing_range()}')
-                        else:
-                            total_stack.append((prev_i, prev_original, prev_tsum, prev))
-                        break
-                    
-                # Append subtotal to the stack
-                tracking_sum = val
-                original = val
-                total_stack.append((i, original, tracking_sum, line))
-
-                if self.debug:
-                    print(f'found {label} @ {i} | val: {val}')
-                    print(f'adding to summing range of {prev.get_label()}')
-
-            # Non total encountered
-            elif tracking_sum is not None:
-
-                # Update tracking sum and summing range if tracking sum isnt 0 or if a line = 0 
-                if self.debug:
-                    print(f'tracking sum before check: {tracking_sum}')
-                if (not tracking_sum == 0) or val == 0:
-                    tracking_sum -= val
-                    old_i, original, _, old_line = total_stack.pop()
-                    old_line.add_summing_range(i)
-                    total_stack.append((old_i, original, tracking_sum, old_line))
+                if solution:
+                    line.add_summing_range(solution)
                     if self.debug:
-                        print(f'tracking_sum now: {tracking_sum}')
+                        print(f'Found solution to line {label}: {solution}')
 
-                # tracking sum is 0 and val isnt 0. Time to pop
+                    # Update unaccounted for to remove indexes found in solution
+                    for i_sol, _ in solution:
+                        for item in unaccounted_for[:]:
+                            i_u, _ = item
+                            if i_sol == i_u:
+                                unaccounted_for.remove(item)
+                                break
+
                 else:
-                    _, original, _, old = total_stack.pop()
-                    old_label = old.get_label()
                     if self.debug:
-                        print(f'total complete: {old_label}| range: {old.get_summing_range()}')
-                    if total_stack:
-                        _, prev_original, _, _ = total_stack[-1]
-                        tracking_sum = prev_original - original
+                        print(f'Warning. Could not find solution for total @ line {line.get_label()}. Treating as regular val')
 
-                        if self.debug:
-                            print(f'prev sum: {prev_original}')
-                            print(f'tracking_sum now: {tracking_sum}')
+                # Update unaccounted for to include total
+                unaccounted_for.append((i, val))
 
-                        # need to factor the val that caused the if statement to eval to false:
-                        tracking_sum -= val
-                        _, _,  _, top_line = total_stack[-1]
-                        top_line.add_summing_range(i)
+        if fs_type == 'INCOME_STATEMENT':
+            self.fs.lines[-1].add_summing_type(3)
 
-                        if self.debug:
-                            print(f'tracking_sum now: {tracking_sum}')
-
-                    else:
-                        if self.debug:
-                            print('WARNING. Stack is None')
-                            tracking_sum = None
-
-        _, _, final_tsum, final_line = total_stack.pop()
-        if not final_tsum == 0 and self.debug: 
-            print(f'Warning! Final tracking sum ≠ 0: {final_tsum} Line: {final_line.get_label()}')
-        if total_stack and self.debug:
-            print('Warning! Unexpected elements in total_stack!')
-            print(f'remaining stack: {total_stack}')
-        if self.debug:
-            print('\nCollected summing ranges:')
-            for line in self.fs.lines:
-                if not line.get_summing_type() == 0:
-                    print(f'Label: {line.get_label()} | Range: {line.get_summing_range()}')
+        print('Summing ranges:')
+        for line in self.fs.lines:
+            if line.get_summing_range():
+                print(f'Line: {line.get_label()} | Range: {line.get_summing_range()}')
 
 
     def debug_output(self, val_x_thresh=75):

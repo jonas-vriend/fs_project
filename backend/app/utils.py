@@ -4,6 +4,28 @@ import numpy as np
 import cv2
 import os
 
+def get_line_coords(lines, color_overlay, debug):
+    # Extract bounding boxes of underscore lines
+    contours, _ = cv2.findContours(lines, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    line_coords = []
+    for cnt in contours:
+        x, y, w, h = cv2.boundingRect(cnt)
+        if w >= 30: 
+            line_coords.append((x, y, w, h))
+            if debug:
+                print(f'Captured line: X: {x} Y: {y}')
+            label = f"({x},{y})"
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            font_scale = .5
+            thickness = 1
+
+            # Put text just above the line, aligned to left corner
+            text_x = x
+            text_y = y - 5 if y - 5 > 0 else y + 10  # Avoid going above image
+            cv2.putText(color_overlay, label, (text_x, text_y), font, font_scale, (0, 0, 0), thickness, cv2.LINE_AA)
+    
+    return line_coords
+
 
 def preprocess_img(pdf_path, debug):
     """
@@ -40,9 +62,9 @@ def preprocess_img(pdf_path, debug):
     color_overlay[filtered_underscores > 0] = [0, 255, 0]  # Green for underscore 0s
 
     # Remove lines from image 
-    binary_no_summing = cv2.bitwise_not(binary)
-    no_summing = cv2.bitwise_or(binary_no_summing, summing_lines)
-    cleaned = cv2.bitwise_not(no_summing)
+    binary_no_lines = cv2.bitwise_not(binary) #TODO: Decided to remove all lines in preprocessing not just summing lines since I didnt want OCR to capture them as somethjing else. IF this causes errors, then change it back
+    no_lines = cv2.bitwise_or(binary_no_lines, all_line_segments)
+    cleaned = cv2.bitwise_not(no_lines)
 
     # Remove small noise blobs
     num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(cleaned, connectivity=8) 
@@ -54,31 +76,15 @@ def preprocess_img(pdf_path, debug):
 
     final_image = Image.fromarray(cv2.cvtColor(filtered, cv2.COLOR_GRAY2RGB))
 
-    # Extract bounding boxes of underscore lines
-    contours, _ = cv2.findContours(filtered_underscores, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    underscore_coords = []
-    for cnt in contours:
-        x, y, w, h = cv2.boundingRect(cnt)
-        if w >= 30: 
-            underscore_coords.append((x, y, w, h))
-            if debug:
-                print(f'Captured line: X: {x} Y: {y}')
-            label = f"({x},{y})"
-            font = cv2.FONT_HERSHEY_SIMPLEX
-            font_scale = .5
-            thickness = 1
+    underscore_zero_coords = get_line_coords(filtered_underscores, color_overlay, debug)
+    summing_line_coords = get_line_coords(summing_lines, color_overlay, debug)
 
-            # Put text just above the line, aligned to left corner
-            text_x = x
-            text_y = y - 5 if y - 5 > 0 else y + 10  # Avoid going above image
-            cv2.putText(color_overlay, label, (text_x, text_y), font, font_scale, (0, 0, 0), thickness, cv2.LINE_AA)
-
-    # Save debug overlay 
     debug_path = os.path.join("Debug", "debug_detected_lines.png")
     Image.fromarray(color_overlay).save(debug_path)
     print(f"Debug image saved to: {debug_path}")
 
-    return final_image, underscore_coords
+    return final_image, underscore_zero_coords, summing_line_coords
+
 
 def get_coords(bbox):
         """
@@ -89,3 +95,59 @@ def get_coords(bbox):
         x2, _ = tr
         _, y2 = bl
         return (x1, x2, y1, y2)
+
+def get_all_subsets(lst):
+    """
+    Recursively finds all subsets of a given list
+    """
+    subsets = []
+
+    def backtrack(start, path):
+        if path:
+            subsets.append(path[:])  # Add a copy of the current subset
+        for i in range(start, len(lst)):
+            backtrack(i + 1, path + [lst[i]])
+
+    backtrack(0, [])
+    return subsets
+
+
+def find_solution(subsets, target=0, off_by_thresh=0):
+    closest_solution = None
+    closest_off_by = float('inf')
+
+    def try_signs(subset):
+        n = len(subset)
+
+        def recurse(i, current_sum, current_combo):
+            nonlocal closest_solution, closest_off_by
+
+            if i == n:
+                off_by = abs(current_sum - target)
+                if off_by == 0:
+                    raise StopIteration(current_combo)
+                elif off_by <= off_by_thresh and off_by < closest_off_by:
+                    closest_solution = current_combo[:]
+                    closest_off_by = off_by
+                return
+
+            index, value = subset[i]
+
+            # Option 1: include value as-is
+            recurse(i + 1, current_sum + value, current_combo + [(index, True)])
+
+            # Option 2: subtract the value
+            recurse(i + 1, current_sum - value, current_combo + [(index, False)])
+
+        try:
+            recurse(0, 0, [])
+        except StopIteration as e:
+            return e.value
+        return None
+
+    for subset in subsets:
+        result = try_signs(subset)
+        if result is not None:
+            return result
+
+    return closest_solution
