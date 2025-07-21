@@ -112,47 +112,64 @@ def get_all_subsets(lst):
     return subsets
 
 
-def find_solution(subsets, target=0, off_by_thresh=0):
+def find_solution(subsets, target=0, off_by_thresh=0, penalize_indices=None):
     """
-    Takes all subsets of unaccounted for lines, tries all combinations of
-    addition and subtraction of subsets until a solution is found to achieve
-    the target value
+    Finds the best subset and +/- sign combo that sums to target.
+    Prefers exact matches, and scores them. Falls back to near matches if needed.
     """
-    closest_solution = None
-    closest_off_by = float('inf')
+    if penalize_indices is None:
+        penalize_indices = set()
+
+    exact_matches = []
+    near_matches = []
 
     def try_signs(subset):
         n = len(subset)
+        results = []
 
         def recurse(i, current_sum, current_combo):
-            nonlocal closest_solution, closest_off_by
-
             if i == n:
                 off_by = abs(current_sum - target)
-                if off_by == 0:
-                    raise StopIteration(current_combo)
-                elif off_by <= off_by_thresh and off_by < closest_off_by:
-                    closest_solution = current_combo[:]
-                    closest_off_by = off_by
+                if off_by <= off_by_thresh:
+                    results.append((current_combo[:], off_by))
                 return
 
             index, value = subset[i]
 
-            # Option 1: include value as-is
+            # Try adding
             recurse(i + 1, current_sum + value, current_combo + [(index, True)])
-
-            # Option 2: subtract the value
+            # Try subtracting
             recurse(i + 1, current_sum - value, current_combo + [(index, False)])
 
-        try:
-            recurse(0, 0, [])
-        except StopIteration as e:
-            return e.value
-        return None
+        recurse(0, 0, [])
+        return results
 
     for subset in subsets:
-        result = try_signs(subset)
-        if result is not None:
-            return result
+        for combo, off_by in try_signs(subset):
+            if off_by == 0:
+                exact_matches.append(combo)
+            else:
+                near_matches.append((combo, off_by))
 
-    return closest_solution
+    def score(combo):
+        indices = [i for i, _ in combo]
+        num_adds = sum(1 for _, sign in combo if sign)
+        num_subs = sum(1 for _, sign in combo if not sign)
+        subtotal_penalty = sum(1 for i in indices if i in penalize_indices)
+
+        return (
+            len(combo) * 10             # prefer using more values
+            + num_adds * 5              # prefer addition
+            - num_subs * 2              # slightly penalize subtraction
+            - subtotal_penalty * 50     # heavily penalize use of subtotal lines
+        )
+
+    # Score and return best exact match if any
+    if exact_matches:
+        return max(exact_matches, key=score)
+
+    # Otherwise, score and return best near match
+    if near_matches:
+        return max((combo for combo, _ in near_matches), key=score)
+
+    return None  # No valid solution found

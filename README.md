@@ -3,6 +3,7 @@
 - (Andre) OCR fails to detect single charater values (See Apple BS 15). Also can split lines that shouldnt be split if it thinks they are crooked (See Apple BS 21). 
     - Potential fixes: maybe preprocessing to dilate characters so OCR can detect them, download easyocr package and tweak tolerances so splitting does not occur, get a better (hopefully free) ocr
 - (Jonas) Work on summing_line function
+- (Jonas) Sometimes financial statements have totals without any label (See Berkshire income statements) Look if its feasible to handle these cases.
 
 ## REST:
 - OPTIONAL - Threshold to binarize image set at 160. Worked so far but could cause issues. Alternative is dynamic setting, but in testing led to a ton of artifacts. 

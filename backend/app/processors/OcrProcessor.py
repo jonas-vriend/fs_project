@@ -736,7 +736,7 @@ class OcrProcessor(BaseProcessor):
         self.state = State.COMPLETED
 
 
-    def get_summing_ranges(self, off_by_thresh=0):
+    def get_summing_ranges(self, off_by_thresh=1):
         """
         Determines indices of line items to add to each subtotal for dynamic summing in final Excel output
         """
@@ -811,10 +811,11 @@ class OcrProcessor(BaseProcessor):
         if fs_type == 'INCOME_STATEMENT':
             self.fs.lines[-1].add_summing_type(TOTAL)
 
-        print('Summing ranges:')
-        for line in self.fs.lines:
-            if line.get_summing_range():
-                print(f'Line: {line.get_label()} | Range: {line.get_summing_range()}')
+        if self.debug:
+            print('Summing ranges:')
+            for line in self.fs.lines:
+                if line.get_summing_range():
+                    print(f'Line: {line.get_label()} | Range: {line.get_summing_range()}')
 
 
     def debug_output(self, val_x_thresh=75):
