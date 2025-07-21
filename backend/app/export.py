@@ -121,7 +121,8 @@ def format_line_items(ws_new, years, line_items, fs_type, start_row=4, start_col
                     val_cell.border = SUBTOTAL_BORDER
                 elif summing_type == 2:
                     val_cell.border = TOTAL_BORDER
-            # Dollar signs assigned to end and beinning of both A and L + SE
+
+            # Dollar signs assigned to end and beinning of both A and L + SE sections
             if dollar_sign:
                 val_cell.number_format = '_("$"* #,##0_);_("$"* (#,##0)'
             else:

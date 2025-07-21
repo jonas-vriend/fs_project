@@ -742,6 +742,7 @@ class OcrProcessor(BaseProcessor):
         """
         SUBTOTAL = 1 # For formatting in export.py; adds single line to top border of cell
         TOTAL = 2 # For formatting in export.py; adds single line to top and double line to bottom
+        REGULAR_VAL = 0 # For formatting in export.py; values is blue with no black borders
 
         assert self.state == State.COMPLETED
 
@@ -795,6 +796,8 @@ class OcrProcessor(BaseProcessor):
                 else:
                     if self.debug:
                         print(f'Warning. Could not find solution for total @ line {line.get_label()}. Treating as regular val')
+                    line.add_summing_type(REGULAR_VAL)
+                        
 
                 # sets summing type for BS totals; prevents grand totals from being included in unaccounted for
                 if fs_type == 'BALANCE_SHEET':
