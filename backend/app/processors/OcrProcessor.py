@@ -740,23 +740,30 @@ class OcrProcessor(BaseProcessor):
         """
         Determines indices of line items to add to each subtotal for dynamic summing in final Excel output
         """
+        SUBTOTAL = 1 # For formatting in export.py; adds single line to top border of cell
+        TOTAL = 2 # For formatting in export.py; adds single line to top and double line to bottom
+
         assert self.state == State.COMPLETED
 
         fs_type = self.fs.fs_type
         tlse = re.compile(r'(?i)total.*liabilit(?:y|ies).*equity')
         ta = re.compile(r'(?i)total assets')
 
-        unaccounted_for = []
+        unaccounted_for = [] # List of indices not used in a sum yet
         year = self.years[0]
 
         for i, line in enumerate(self.fs.lines):
+            # Skip lines without vals
             vals = line.get_data()
             if not vals:
                 continue
-
             val = vals[year]
+
+            # if regulat val, add to unaccounted for
             if not line.is_total:
                 unaccounted_for.append((i, val))
+
+            # Total detected! Set summing type and try to find summing range
             else:
                 label = line.get_label()
                 if not unaccounted_for:
@@ -764,14 +771,15 @@ class OcrProcessor(BaseProcessor):
                     unaccounted_for.append((i, val))
                     continue
 
-                line.add_summing_type(1)
+                line.add_summing_type(SUBTOTAL)
 
                 vals = line.get_data()
                 target = vals[year]
                 
-                subsets = get_all_subsets(unaccounted_for)
-                solution = find_solution(subsets, target, off_by_thresh)
+                subsets = get_all_subsets(unaccounted_for)  # Cals fxn in utils to find all subsets of indices in unaccounted for
+                solution = find_solution(subsets, target, off_by_thresh) # Finds all possible combos of addition and subtraction of subsets to achieve target val
 
+                #Add summing rnage if solution found
                 if solution:
                     line.add_summing_range(solution)
                     if self.debug:
@@ -784,20 +792,21 @@ class OcrProcessor(BaseProcessor):
                             if i_sol == i_u:
                                 unaccounted_for.remove(item)
                                 break
-
                 else:
                     if self.debug:
                         print(f'Warning. Could not find solution for total @ line {line.get_label()}. Treating as regular val')
 
+                # sets summing type for BS totals; prevents grand totals from being included in unaccounted for
                 if fs_type == 'BALANCE_SHEET':
                     if tlse.match(label) or ta.match(label):
-                        line.add_summing_type(2)
+                        line.add_summing_type(TOTAL)
                         continue
                 # Update unaccounted for to include total
                 unaccounted_for.append((i, val))
 
+        # set summing type for net income
         if fs_type == 'INCOME_STATEMENT':
-            self.fs.lines[-1].add_summing_type(2)
+            self.fs.lines[-1].add_summing_type(TOTAL)
 
         print('Summing ranges:')
         for line in self.fs.lines:
