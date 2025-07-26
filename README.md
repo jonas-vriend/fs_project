@@ -2,7 +2,6 @@
 ## TOP PRIORITIES:
 - (Andre) OCR fails to detect single charater values (See Apple BS 15). Also can split lines that shouldnt be split if it thinks they are crooked (See Apple BS 21). 
     - Potential fixes: maybe preprocessing to dilate characters so OCR can detect them, download easyocr package and tweak tolerances so splitting does not occur, get a better (hopefully free) ocr
-- (Jonas) Work on summing_line function
 - (Jonas) Sometimes financial statements have totals without any label (See Berkshire income statements) Look if its feasible to handle these cases.
 
 ## REST:
@@ -19,13 +18,15 @@
 - Apple BS 2021: Splits the 26 off of FYE line - not catastrophic since this line isnt used but can forsee this happening to important values so want to avoid this
 - Amazon BS 22 - Total current assets split into 2 bboxes. evals to 0 
 - GE BS  18: Misses single digit preferred stock vals: 6, 6
+- GE BS 24 - $ added to PPE which isnt a line that should have one. This is because - getting split from other parts of label and being read as S
+- Hershey BS 24: Accounts receiveable split in two
 - UHG BS 24 - single digit 9s not captured in common stock line
 - UHG IS 2018: Really bad hallcuination where $ treated as 8.
-- Hershey BS 24: Accounts receiveable split in two
+
 ### LOGIC ERRORS
+- BH BS 24: auditors are idiots and didnt label the summing line. Maybe detect if a line has an empty label and default to ''
 - GE BS 20 - underscore 0s logic struggling with densely packed text
 - GE BS 22 - merged junk to final line
-- BH BS 24: auditors are idiots and didnt label the summing line. Maybe detect if a line has an empty label and default to ''
 
 ## Starting Development
 

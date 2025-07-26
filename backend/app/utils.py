@@ -12,8 +12,6 @@ def get_line_coords(lines, color_overlay, debug):
         x, y, w, h = cv2.boundingRect(cnt)
         if w >= 30: 
             line_coords.append((x, y, w, h))
-            if debug:
-                print(f'Captured line: X: {x} Y: {y}')
             label = f"({x},{y})"
             font = cv2.FONT_HERSHEY_SIMPLEX
             font_scale = .5
@@ -95,6 +93,7 @@ def get_coords(bbox):
         x2, _ = tr
         _, y2 = bl
         return (x1, x2, y1, y2)
+
 
 def get_all_subsets(lst):
     """

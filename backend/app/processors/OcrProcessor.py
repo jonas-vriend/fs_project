@@ -339,14 +339,14 @@ class OcrProcessor(BaseProcessor):
         Inserts '0' values into financial lines where underscores (e.g., "__") were detected in the image.
         """
         assert self.state == State.PREPROCESSED
-        can_num = 0  # Candidate counter for debugging
 
+        can_num = 0  # Candidate counter for debugging
         for (x, y, w, _) in self.underscore_coords:
             can_num += 1
-            if self.debug:
-                print('\n=== NEW CANDIDATE ===')
-
             rx = x + w  # Right x-coordinate of underscore (used to match against col_coords)
+
+            if self.debug:
+                print(f'\n=== NEW CANDIDATE: {can_num} | X: {rx} Y: {y} ===')
 
             for line in self.raw_lines:
                 line_y1, line_y2  = line.get_y_vals()
@@ -382,17 +382,6 @@ class OcrProcessor(BaseProcessor):
                             if self.debug:
                                 print(f'INSERTED candidate {can_num} at col {candidate_closest_idx}, x={rx}, y={y}, LINE: {line.get_text()}')
                             break
-                        else:
-                            if self.debug:
-                                print(f'REJECTING candidate {can_num} with coords x: {rx} y: {y}. Failed x threshold check. LINE: {line.get_text()}')
-                            continue
-                    else:
-                        if self.debug:
-                            print(f'REJECTING candidate {can_num} with coords x: {rx} y: {y}. Vals already accounted for. LINE: {line.get_text()}')
-                        continue
-                else:
-                    if self.debug:
-                        print(f'REJECTING candidate {can_num} with coords x: {rx} y: {y}. Y thresh failed. LINE: {line.get_text()} LINE Y1: {line_y1} LINE Y2: {line_y2}')
 
 
     def assign_summing_lines(self, y_thresh=40):
@@ -403,13 +392,13 @@ class OcrProcessor(BaseProcessor):
         assert self.state == State.PREPROCESSED
         can_num = 0  # Candidate counter for debugging
         found_first = False # Flag to skip any lines before first actual line item found
-        top_y = None # First line y val coord. No lines should ever be above here. 
+        top_y = None # First line y val coord. No lines should ever be above here.
 
         # get summing line y val
         for (_, y, _, _) in self.summing_line_coords:
             can_num += 1
             if self.debug:
-                print(f'\n=== NEW CANDIDATE: {can_num}===')
+                print(f'\n=== NEW CANDIDATE: {can_num} | Y: {y} ===')
 
             for i, line in enumerate(self.raw_lines):
                 # confirm line has y vals to compare to summing_line candidate.
@@ -439,7 +428,8 @@ class OcrProcessor(BaseProcessor):
             print('Found totals:')
             for total in found_totals:
                 print(f'\n{total}')
-                
+
+
     def add_indentation(self, x_thresh=50):
         """
         Assigns indentation levels to each RawLine line based on horizontal x-coordinates.
@@ -673,7 +663,6 @@ class OcrProcessor(BaseProcessor):
             if line.is_total:
                 new_line_item.set_total()
             new_line_item.add_indent(indent)
-
 
             # Checks if line item with vals
             vals = line.get_vals()
